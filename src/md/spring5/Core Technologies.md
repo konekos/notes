@@ -28,7 +28,7 @@ Spring有几个开箱即用的ApplicationContext的实现，在单机应用通�
 传统配置使用xml，本章大多使用xml来传达ioc容器的概念与特性。  
 
 Ioc容器与配置元数据是分离的，也有人用 Java-based configuration来配置元数据。  
-  
+
 Spring配置包含至少一个通常不是一个容器必须管理的bean的定义。 xml的bean在beans标签内，或用在一个@Configuration的类上用@Bean注解方法。
 这些bean定义对应组成应用的实体。通常定义服务层对象，数据访问层对象，表现层比如Struts Action实例，基础设施对象比如Hibernate SessionFactories，JMS队列等等。通常不在容器配置细粒度的domain对象，因为这通常是daos和业务逻辑去创建和加载domain对象。但是你也可以用Spring集成Aspectj来配置IOC容器外创建的对象。See Using AspectJ to dependency-inject domain objects with Spring.
 
@@ -829,7 +829,7 @@ public class Foo {
         </property>
     </bean>
 </beans>
-```  
+```
 
 当foo bean的accounts属性被准备注入时，关于强类型的元素类型的泛型信息Map<String, Float>会被反射而可用。因此，Spring的类型转换设施识别出各种各样的Float值元素， 9.99, 2.75,3.99这样的string值被转换成Float。  
 
@@ -913,7 +913,7 @@ Spring支持带有namespaces的可扩展配置形式，是基于xml形式定义�
         <property name="name" value="Jane Doe"/>
     </bean>
 </beans>
-```  
+```
 
 正如您所看到的，这个例子不仅有使用p名称空间的属性值，也使用一种特殊的格式来声明属性引用。第一个bean定义用property name="spouse" ref="jane" 来创建了jane的引用。 第二个使用p:spouse-ref="jane"作为一个属性做了同样的事情。在这个例子中spouse是一个property名称，-ref表明了这不是一个实际的值，而是一个对其他bean的引用。  
 
@@ -946,7 +946,7 @@ Spring支持带有namespaces的可扩展配置形式，是基于xml形式定义�
     <bean id="foo" class="x.y.Foo" c:bar-ref="bar" c:baz-ref="baz" c:email="foo@bar.com"/>
 
 </beans>
-```  
+```
 
 c名称空间使用与p相同的约定，来通过构造参数的name设置值。同样，它也需要被声明，即使它不是在XSD模式中定义的（但是它存在于Spring核心中）。  
 
@@ -1031,7 +1031,7 @@ Spring容器可以自动连接协作bean之间的关系。您可以通过检查A
 |no|（默认）不autowiring。Bean引用必须通过ref元素来定义。对于较大的部署，不建议更改默认设置，因为指定合作者显式地提供了更大的控制和清晰性。在某种程度上，它记录了系统的结构。|
 |byName|通过属性名byName。Spring寻找一个与需要autowire属性同名的bean。例如，如果一个bean定义被设置为通过name autowire，并且它包含一个master属性（也就是说，它有一个setMaster（..）方法），Spring寻找一个名为master的bean定义，并用它来设置属性|
 |byType|如果容器中存在一个属性类型的bean，则允许属性被autowire。如果不止一个存在，就会抛出一个致命的异常，表示你不能用byType的autowire来设置bean。如果没有匹配的bean，什么也不会发生;这个属性没有设置。|
-|constructor|类似于byType，但是应用于构造函数参数。如果容器中的构造器参数类型没有一个bean，那么就会出现一个致命错误|  
+|constructor|类似于byType，但是应用于构造函数参数。如果容器中的构造器参数类型没有一个bean，那么就会出现一个致命错误|
 
 通过byType或constructor的autowire模式，你可以连接数组和类型-集合。在这种情况下，所有在容器内的与预期的类型匹配的autowire候选者都被提供以满足依赖。如果预期的键类型是string，您可以自动连接强类型map（带有泛型）。autowired Map的值会包括所有满足预期类型的实例，键会包含和值对应的bean名字。  
 
@@ -1102,7 +1102,7 @@ public class CommandManager implements ApplicationContextAware {
         this.applicationContext = applicationContext;
     }
 }
-```  
+```
 
 前面的内容是不可取的，因为业务代码be aware of 框架并与Spring框架耦合在一起。方法注入，是Spring IoC容器的一个稍微高级的特性，允许以一种干净的方式处理这个用例。  
 
@@ -1135,7 +1135,7 @@ public abstract class CommandManager {
     // okay... but where is the implementation of this method?
     protected abstract Command createCommand();
 }
-```  
+```
 
 在client类包含被注入的方法（这个例子的CommandManager），要注入的方法需要以下形式的签名： 
 
@@ -1155,7 +1155,7 @@ public abstract class CommandManager {
 <bean id="commandManager" class="fiona.apple.CommandManager">
     <lookup-method name="createCommand" bean="myCommand"/>
 </bean>
-```  
+```
 
 这个bean被标识为commandManager，每当需要一个myCommand bean的新实例时，调用它自己的方法createCommand（）。您必须小心地将myCommand bean部署为prototype，如果myCommand真的被需要。如果它是一个单例，那么每次都会返回myCommand bean的同一个实例。  
 
@@ -1173,7 +1173,7 @@ public abstract class CommandManager {
     @Lookup("myCommand")
     protected abstract Command createCommand();
 }
-```  
+```
 
 或者，更傻瓜的做法，根据目标bean根据查找方法的声明返回类型来解决：  
 
@@ -1189,7 +1189,7 @@ public abstract class CommandManager {
     @Lookup
     protected abstract MyCommand createCommand();
 }
-```  
+```
 
 注意你通常声明@lookup的方法是有具体子实现的方法，为了使它们与Spring的组件扫描规则兼容，在这种规则中，抽象类在默认情况下会被忽略。在显式注册或显式导入bean类的情况下，此限制不适用。  
 
@@ -1210,7 +1210,7 @@ public class MyValueCalculator {
 
     // some other methods...
 }
-```  
+```
 
 一个实现org.springframework.beans.factory.support.MethodReplacer接口的类提供新的方法定义。  
 
@@ -1229,7 +1229,7 @@ public class ReplacementComputeValue implements MethodReplacer {
     }
 }
 
-```  
+```
 
 用于部署原始类并指定方法覆盖的bean定义如下：  
 
@@ -1243,7 +1243,7 @@ public class ReplacementComputeValue implements MethodReplacer {
 </bean>
 
 <bean id="replacementComputeValue" class="a.b.c.ReplacementComputeValue"/>
-```  
+```
 
 你可以使用replaced-method节点下的一个或者多个arg-type元素来指出被覆盖的方法的方法签名。只有方法被重载并且类中有多个变体才需要参数的签名。为了方便，参数的类型字符串可能是完全限定类型名称的子串。例如，下列所有都匹配java.lang.string：  
 
@@ -1272,7 +1272,7 @@ Str
 |request|一个bean定义作用于一个HTTP request生命周期；也就是说，每个HTTP请求都有自己的bean实例，它是从single bean定义的后面创建的。只在web-aware 的Spring ApplicationContext有效|
 |session|一个bean定义作用于一个HTTP session的生命周期；只在web-aware 的Spring ApplicationContext有效|
 |application|一个bean定义作用于一个ServletContext，只在web-aware 的Spring ApplicationContext有效|
-|websocket|一个bean定义作用于一个WebSocket生命周期，只在web-aware 的Spring ApplicationContext有效|  
+|websocket|一个bean定义作用于一个WebSocket生命周期，只在web-aware 的Spring ApplicationContext有效|
 
 **在spring3.0中，thread scope是可用的，但是在默认情况下是不注册的。要了解更多信息，请参阅SimpleThreadScope的文档。有关如何注册这个scope或任何其他自定义scope，请参阅Using a custom scope。**  
 
@@ -1305,7 +1305,7 @@ Spring singleton bean的概念和在Gang of Four（GoF）模式手册中定义�
 
 ```
 <bean id="accountService" class="com.foo.DefaultAccountService" scope="prototype"/>
-```  
+```
 
 和其他scopes相比，Spring没有管理prototype bean的完整的生命周期：容器初始化、配置等来组装一个prototype对象，把它交给client，然后就没有这个prototype实例的进一步记录。因此，尽管initialization 生命周期回调方法在所有的不管是什么scope的对象上都被调用，在prototype的情况下，配置的destruction生命周期回调并没有被调用。客户端代码必须清理prototype-scoped对象，来释放prototype bean(s)持有的资源。要得到Spring容器来释放prototype-scoped beans持有的资源，尝试使用自定义bean post-processor，它包含了对需要清理的bean的引用。  
 
@@ -1341,7 +1341,7 @@ request, session, application, and websocket scopes仅仅在你使用web-aware A
     </listener>
     ...
 </web-app>
-```  
+```
 
 或者，如果你的监听器设置有问题，考虑使用Spring的RequestContextFilter。过滤器映射依赖于周围的web应用程序配置，因此您必须适当地更改它。  
 
@@ -1358,7 +1358,7 @@ request, session, application, and websocket scopes仅仅在你使用web-aware A
     </filter-mapping>
     ...
 </web-app>
-```  
+```
 
 DispatcherServlet, RequestContextListener, and RequestContextFilter都做了完全相同的事情，即把HTTP请求对象绑定到服务该请求的Thread。这使得在调用链上的request- and session-scoped的bean变得可用。  
 
@@ -1380,7 +1380,7 @@ Spring容器使用LoginAction的bean定义，每次HTTP request时，创建一�
 public class LoginAction {
     // ...
 }
-```  
+```
 
 ##### Session scope  
 
@@ -1420,17 +1420,21 @@ Spring容器使用AppPreferences的bean定义，创建一个AppPreferences bean�
 public class AppPreferences {
     // ...
 }
-```  
+```
 
 ##### Scoped beans as dependencies  
 
 Spring IoC容器不仅管理对象（beans）的实例化，也会wire up collaborators（dependencies）。如果您想要注入一个HTTP request scope的bean到另一个长期存在的bean中，你可以选择注入一个aop代理代替scoped bean。也就是说，你需要注入一个代理对象，它暴露了与作用域对象相同的public接口，但也可以从相关scope（比如HTTP request）拿到真实的目标对象，或者委托方法调用得到真实对象。  
 
-**你也可以singleton scope的beans间使用`<aop:scoped-proxy/>`,通过这个引用然后通过一个可序列化的中间代理，从而通过反序列化重新得到目标单例bean。  
-当对prototype的bean声明`<aop:scoped-proxy/>`，共享代理上的每个方法调用，都会导致一个方法调用所导向的新的目标实例的创建。  
-此外，scoped proxies不是唯一的方式，以一种生命周期安全的方式，访问shorter scopes的beans。你也可以简单地声明你的注入点（例如，constructor/setter参数，或者autowired field）作为```ObjectFactory<MyTargetBean>```，允许getObject（）调用在每次需要时按需检索当前实例——而不需要保留实例或单独存储它。  
-作为一个扩展的变体，您可以声明`ObjectProvider<MyTargetBean>`，它提供了几个额外的访问形式，包括`getIfAvailable`和`getIfUnique`。  
-JSR-330在此叫`Provider`，使用`Provider<MyTargetBean>`声明和一个对应的`get()`调用，用于每一次获取尝试。see Using JSR 330 Standard Annotations for more details on JSR-330 overall。**
+**你也可以singleton scope的beans间使用`<aop:scoped-proxy/>`,通过这个引用然后通过一个可序列化的中间代理，从而通过反序列化重新得到目标单例bean。**  
+
+**当对prototype的bean声明`<aop:scoped-proxy/>`，共享代理上的每个方法调用，都会导致一个方法调用所导向的新的目标实例的创建。**  
+
+**此外，scoped proxies不是唯一的方式，以一种生命周期安全的方式，访问shorter scopes的beans。你也可以简单地声明你的注入点（例如，constructor/setter参数，或者autowired field）作为```ObjectFactory<MyTargetBean>```，允许getObject（）调用在每次需要时按需检索当前实例——而不需要保留实例或单独存储它。**  
+
+**作为一个扩展的变体，您可以声明`ObjectProvider<MyTargetBean>`，它提供了几个额外的访问形式，包括`getIfAvailable`和`getIfUnique`。**  
+
+**JSR-330在此叫`Provider`，使用`Provider<MyTargetBean>`声明和一个对应的`get()`调用，用于每一次获取尝试。see Using JSR 330 Standard Annotations for more details on JSR-330 overall。**
 
 
 下面例子中的配置只是一行，但是理解“为什么”以及它背后的“如何”是很重要的。  
@@ -1483,7 +1487,7 @@ JSR-330在此叫`Provider`，使用`Provider<MyTargetBean>`声明和一个对应
 <bean id="userManager" class="com.foo.UserManager">
     <property name="userPreferences" ref="userPreferences"/>
 </bean>
-```  
+```
 
 ###### Choosing the type of proxy to create 
 
@@ -1542,21 +1546,570 @@ String getConversationId()
 
 ##### Using a custom scope 
 
+在您编写和测试一个或多个自定义scope实现之后，你需要让Spring容器知道你的scope。下面的方法是用Spring容器注册新scope的核心方法。  
+
+```
+void registerScope(String scopeName, Scope scope);
+```
+
+这个方法在ConfigurableBeanFactory接口，在大部分的ApplicationContext的具体实现上都可用，通过Spring的BeanFactory的属性。  
+
+`registerScope(..)`方法的第一个参数是与scope相关的唯一的name；Spring容器中这样的名字例如singleton和prototype。`registerScope(..)`方法的第二个参数是自定义Scope实现的实例，你希望注册和使用它。  
+
+假设你写了自定义Scope实现，然后像下面一样注册。  
+
+**下面的例子用了SimpleThreadScope scope，Spring包含了它，但是默认没有注册。对于你自己的自定义scope实现注册操作是一样的。**  
+
+```
+Scope threadScope = new SimpleThreadScope();
+beanFactory.registerScope("thread", threadScope);
+```
+
+然后你可以创建bean定义，遵循你的自定义scope的规则。  
+
+```
+<bean id="..." class="..." scope="thread">
+```
+
+有了自定义scope，你不局限于程序化注册scope。你也可以声明式地注册scope，使用CustomScopeConfigurer类。  
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:aop="http://www.springframework.org/schema/aop"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans
+        http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.springframework.org/schema/aop
+        http://www.springframework.org/schema/aop/spring-aop.xsd">
+
+    <bean class="org.springframework.beans.factory.config.CustomScopeConfigurer">
+        <property name="scopes">
+            <map>
+                <entry key="thread">
+                    <bean class="org.springframework.context.support.SimpleThreadScope"/>
+                </entry>
+            </map>
+        </property>
+    </bean>
+
+    <bean id="bar" class="x.y.Bar" scope="thread">
+        <property name="name" value="Rick"/>
+        <aop:scoped-proxy/>
+    </bean>
+
+    <bean id="foo" class="x.y.Foo">
+        <property name="bar" ref="bar"/>
+    </bean>
+
+</beans>
+```
+
+**当你把`<aop:scoped-proxy/>`放到FactoryBean的实现，这是FactoryBean本身被scoped，不是`getObject()`返回的对象。**  
+
+### 1.6. Customizing the nature of a bean  
+
+#### 1.6.1. Lifecycle callbacks  
+
+与容器管理bean的生命周期交互，你可以实现Spring的InitializingBean和DisposableBean接口。容器对前者调用`afterPropertiesSet()`，对后者调用`destroy()`，来允许bean在初始化和销毁时执行某些动作。  
+
+**JSR-250，@PostConstruct 和 @PreDestroy注解，在现代java应用，普遍被认为是接收生命周期回调的最佳实践。用这些注释意味着您的bean没有耦合到Spring特定的接口。For details see @PostConstruct and @PreDestroy  如果你不想用JSR-250注解，但你仍然想消除耦合，考虑使用对象定义元数据的 init-method 和 destroy-method。**  
+
+Spring内部使用BeanPostProcessor的实现，来处理任何它可以找到的回调接口，并调用合适的方法。如果你需要Spring没有提供开箱即用的自定义特性和其他生命周期行为，你可以自己实现BeanPostProcessor。更多信息，see  Container Extension Points。  
+
+除了初始化和销毁的回调，Spring管理的对象也可能实现了Lifecycle接口，这样这些对象就可以参与由容器自身生命周期驱动的启动和关闭的过程。  
+
+生命周期回调接口在本节中描述。  
+
+##### Initialization callbacks  
+
+org.springframework.beans.factory.InitializingBean接口允许bean在bean上的所有必要属性都由容器设置之后执行初始化工作。InitializingBean接口只指定了一个方法：  
+
+```
+void afterPropertiesSet() throws Exception;
+```
+
+建议您不使用InitializingBean接口，因为它不必要地将代码与Spring结合在一起。可以选择用 @PostConstruct注解，或者指定POJO初始化方法。在基于xml的配置元数据的情况下，使用init-method属性指定一个返回类型为void的无参方法。使用Java Config，使用@Bean的initMethod属性，see Receiving lifecycle callbacks。如下：  
+
+```
+<bean id="exampleInitBean" class="examples.ExampleBean" init-method="init"/>
+```
+
+```
+public class ExampleBean {
+
+    public void init() {
+        // do some initialization work
+    }
+}
+```
+
+和下面一样：  
+
+```
+<bean id="exampleInitBean" class="examples.AnotherExampleBean"/>
+```
+
+```
+public class AnotherExampleBean implements InitializingBean {
+
+    public void afterPropertiesSet() {
+        // do some initialization work
+    }
+}
+```
+
+但是不要把代码和Spring耦合。
+
+##### estruction callbacks  
+
+实现org.springframework.beans.factory.DisposableBean接口，允许bean在容器包含它时，被销毁得到一个回调。DisposableBean接口指定了单个方法：  
+
+```
+void destroy() throws Exception;
+```
+建议您不使用DisposableBean接口，因为它不必要地将代码与Spring结合在一起。可以使用@PreDestroy注解，或者由bean定义指定一个方法。xml配置元数据，使用bean节点的destroy-method属性。Java Config使用@Bean的destroyMethod属性， see Receiving lifecycle callbacks。 例如以下定义：  
+
+```
+<bean id="exampleInitBean" class="examples.ExampleBean" destroy-method="cleanup"/>
+```
+
+```
+public class ExampleBean {
+
+    public void cleanup() {
+        // do some destruction work (like releasing pooled connections)
+    }
+}
+```
+
+和以下同义：
+
+```
+<bean id="exampleInitBean" class="examples.AnotherExampleBean"/>
+```
+
+```
+public class AnotherExampleBean implements DisposableBean {
+
+    public void destroy() {
+        // do some destruction work (like releasing pooled connections)
+    }
+}
+```
+
+但是不要把代码和Spring耦合。  
+
+
+**bean节点的destroy-method属性，可以被指定一个特殊的（推断）值，可以指示Spring自动检测指定bean上的public的close或shutdown方法（任何实现了java.lang.AutoCloseable或者java.io.Closeable的类都能匹配）。这个特殊的值，也可以被设置在beans的default-destroy-method属性上，将这个行为应用到一组beans中（see Default initialization and destroy methods）。注意这是Java config的默认行为**  
+
+##### Default initialization and destroy methods  
+
+当你写不使用Spring特定的InitializingBean和DisposableBean回调接口的初始化和销毁方法回调，你通常将方法命名为 `init()` `initialize()` `dispose()`等等。理想情况下，这样的生命周期回调方法在项目中标准化，所有开发人员使用相同一致的方法名。  
+
+你可以配置Spring容器在每个bean上查找被命名为初始化和销毁的方法。这意味着，作为开发者，写应用classes，使用叫`init()`的初始化方法，不需要在每个bean的定义都写上init-method="init"。当bean被创建，Spring容器调用那个方法（如前面描述的契约）。这个特性也对初始化和销毁方法回调强制了一致性的命名。  
+
+假设你的初始化回调方法叫`init()`，销毁回调方法叫`destory()`。你的类将类似如下类：  
+
+```
+public class DefaultBlogService implements BlogService {
+
+    private BlogDao blogDao;
+
+    public void setBlogDao(BlogDao blogDao) {
+        this.blogDao = blogDao;
+    }
+
+    // this is (unsurprisingly) the initialization callback method
+    public void init() {
+        if (this.blogDao == null) {
+            throw new IllegalStateException("The [blogDao] property must be set.");
+        }
+    }
+}
+```
+
+```
+<beans default-init-method="init">
+
+    <bean id="blogService" class="com.foo.DefaultBlogService">
+        <property name="blogDao" ref="blogDao" />
+    </bean>
+
+</beans>
+```
+
+顶级节点beans的default-init-method的存在，使IOC容器识别beans上的叫init的方法，使之作为初始化方法回调。当一个bean被创建和组装时，如果bean类有这样的方法，那么它将在适当的时候被调用。  
+
+你可以用类似的方式配置销毁方法回调（这是在XML），使用beans节点的default-destroy-method属性。  
+
+当存在的bean classes有和约定不通过的回调方法，你可以通过指定bean的init-method和destroy-method属性覆盖掉默认的。  
+
+Spring容器保证在一个bean被提供所有的依赖后，其配置的初始化回调方法会被立即调用。因此，初始化回调是在raw bean引用上被调用的，这意味着AOP拦截器等等还没有应用到bean中。目标bean*首先*被完全创建，然后带有拦截器的AOP代理（例如）会被applied。如果目标bean和代理是分开定义的，您的代码甚至可以绕过代理，与原始目标bean直接交互。因此，把拦截器应用到init method会导致不一致，因为这样做会使目标bean的生命周期和它的代理/拦截器耦合，当你的代码直接与原始目标bean交互时，会产生奇怪的语义。  
+
+##### Combining lifecycle mechanisms  
+
+自Spring2.5，你有3种方式控制bean生命周期行为：InitializingBean 和 DisposableBean接口；自定义`init()`和`destroy()`方法； @PostConstruct 和 @PreDestroy注解。您可以组合这些机制来控制给定的bean。  
+
+**如果为bean配置了多个生命周期机制，并且每个机制都配置了不同的方法名，那么每个配置的方法都按照下面列出的顺序执行。然而，如果配置了相同的名字，例如，多个机制配置init()为初始化方法，该方法执行一次，如前一节所述。**  
+
+为同一bean配置的多个生命周期机制，具有不同的初始化方法，如下被调用：
+
+- @PostConstruct注解的方法。
+- InitializingBean回调接口定义的afterPropertiesSet()
+- 自定义的init()方法。  
+
+销毁方法以同样的顺序被调用，
+
+- @PostConstruct注解的方法。
+- DisposableBean回调接口定义的destroy()
+- 自定义的init()方法。  
+
+##### Startup and shutdown callbacks  
+
+Lifecycle接口定义了任何对象其自身生命周期需要的必要的方法（例如，启动和停止一些后台进程）。   
+```
+public interface Lifecycle {
+
+    void start();
+
+    void stop();
+
+    boolean isRunning();
+}
+```
+
+任何Spring管理的对象都可以实现该接口。然后，当ApplicationContext本身接收开始和停止信号时，例如在运行时停止/重启的场景，他会把这些调用串联到所有Context内定义的Lifecycle的实现。这是通过委托给一个LifecycleProcessor完成的：  
+
+```
+public interface LifecycleProcessor extends Lifecycle {
+
+    void onRefresh();
+
+    void onClose();
+}
+```
+
+注意到LifecycleProcessor接口本身就是Lifecycle接口的扩展。它还添加了另外两种方法来响应正在刷新和关闭的context。  
+
+**注意常规的`org.springframework.context.Lifecycle`接口只是一个简单的显示启动/关闭通知的约定，并不意味在context刷新时自动启动。考虑使用`org.springframework.context.SmartLifecycle`接口代替，来对特定bean自动启动进行细粒度控制（包括启动阶段）。同时注意，在bean销毁前，停止信号不能被保证：在常规shutdown，所有的Lifecycle beans在一般的销毁回调被传播之前，会首先收到终止通知 。然而，在一个context的生命周期，或者在丢弃的刷新尝试的热刷新上，只有销毁方法被调用。**  
 
 
 
+启动和关闭调用的顺序可能很重要。如果两个对象之间存在"depends-on" ，依赖别人的一方，会在它的依赖之后启动，并在它的依赖之后停止。然而，有时直接依赖关系是未知的。您可能只知道某种类型的对象应该在另一种类型的对象之前启动。在这种情况下，`SmartLifecycle `接口定义是一种选择，它的`getPhase() `方法定义在其父接口上：  
+
+```
+public interface Phased {
+
+    int getPhase();
+}
+```
+
+```
+public interface SmartLifecycle extends Lifecycle, Phased {
+
+    boolean isAutoStartup();
+
+    void stop(Runnable callback);
+}
+```
+
+启动时，lowest phase的对象先启动，停止时，顺序相反。因此，实现了`SmartLifecycle`的对象，它的`getPhase`方法`Integer.MIN_VALUE`会是第一个启动最后一个销毁。在spectrum的另一端，phase的值为`Integer.MAX_VALUE`表明对象最后start，最先stop。考虑phase值时，必要知道任何普通的`Lifecycle`对象（没有实现`SmartLifecycle`接口）的默认值是0。因此，任何负值都表明对象在这些标准组件之前启动（在其后销毁），对正值是相反的。  
+
+由你所见，`SmartLifecycle`接口定义的方法接受回调。任何实现必须在其自身的shutdown过程完成后，调用callback的run方法。这使必要时异步shutdown成为可能，因为默认的`LifecycleProcessor`的实现`DefaultLifecycleProcessor` ，会等待每个phase的对象组的timeout值，来调用回调方法。默认的 per-phase timeout为30s。你可以通过在context内定义一个叫“lifecycleProcessor”的bean来override默认的lifecycle processor实例。如果您只想修改超时，那么定义以下内容就足够了： 
+
+```
+<bean id="lifecycleProcessor" class="org.springframework.context.support.DefaultLifecycleProcessor">
+    <!-- timeout value in milliseconds -->
+    <property name="timeoutPerShutdownPhase" value="10000"/>
+</bean>
+```
+
+正如提到的，`LifecycleProcessor`接口也为刷新和关闭context定义了回调方法。后者将简单地驱动shutdown过程，好像`stop()`方法被显示调用了，但是当context关闭时它就会发生。另一方面，“刷新”回调则支持`SmartLifecycle` beans的另一个特性。 context被刷新时（所以对象被初始化和实例化之后），回调会被调用，在那时，默认的lifecycle processor 会检查每个`SmartLifecycle`对象`isAutoStartup()`方法返回的布尔值。如果是“true”，对象就会在那时启动，而不是等待显示调用context或者其自身的`start()`方法（不像context刷新，context start对于标准context实现不自动发生。）。phase的值和depends-on的关系相同方式的启动顺序，如上所述。
+
+##### Shutting down the Spring IoC container gracefully in non-web applications
+
+**这部分只适用于非web应用程序。web-based的ApplicationContext的实现 ，当相关的web应用程序关闭时，已经有了适当的代码来关闭Spring IoC容器。**
+
+如果你在非web端应用环境，比如，富客户端桌面环境；你可以用JVM注册一个shutdown钩子。从而优雅地关闭并调用单例beans的相关销毁方法，来释放所有的资源。当然，您仍然必须正确地配置和实现这些销毁回调。 
+
+调用`ConfigurableApplicationContext`接口的`registerShutdownHook()`方法来注册钩子：  
+
+```
+import org.springframework.context.ConfigurableApplicationContext;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
+
+public final class Boot {
+
+    public static void main(final String[] args) throws Exception {
+        ConfigurableApplicationContext ctx = new ClassPathXmlApplicationContext("beans.xml");
+
+        // add a shutdown hook for the above context...
+        ctx.registerShutdownHook();
+
+        // app runs here...
+
+        // main method exits, hook is called prior to the app shutting down...
+    }
+}
+```
+
+#### 1.6.2. ApplicationContextAware and BeanNameAware 
+
+当ApplicationContext创建一个实现`org.springframework.context.ApplicationContextAware`接口的对象实例，实例会提供给ApplicationContext一个引用。
+
+```java
+public interface ApplicationContextAware {
+
+    void setApplicationContext(ApplicationContext applicationContext) throws BeansException;
+}
+```
+
+beans会编程式地控制创建它们的`ApplicationContext`，通过`ApplicationContext`接口，或者转换引用到这个借口的子类，比如`ConfigurableApplicationContext`，它暴露了额外的功能。一个功能是编程式地得到其他的beans。有时这个会有用；然而，通常你需要避免使用，因为它把代码和Spring耦合了，不符合IOC风格。`ApplicationContext`的其他方法提供了访问文件资源，发布应用实践，访问数据源。这些额外特性描述在 [Additional capabilities of the ApplicationContext](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#context-introduction) 。
+
+自从Spring2.5，autowirng是ApplicationContext得到引用的另一种选择。"traditional" 的`constructor`和`byType`autowiring模式，可以为ApplicationContext的各自的构造器参数和setter方法参数提供依赖。为了获得更大的灵活性，包括自动连接字段和多种参数方法的能力，可以使用新的基于注解的自动连接特性。查看 [@Autowired](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-autowired-annotation) 寻找更多信息。
+
+当ApplicationContext创建一个实现`org.springframework.beans.factory.BeanNameAware`接口的类，这个类提供了其他关联对象定义里该name的引用。
+
+```java
+public interface BeanNameAware {
+
+    void setBeanName(String name) throws BeansException;
+}
+```
+
+回调在所有bean属性设置后被调用，但是在初始化回调之前，比如`InitializingBean`的*afterPropertiesSet* 或者一个自定义的init-method。
+
+#### 1.6.3. Other Aware interfaces
+
+除了以上的`ApplicationContextAware` 和 `BeanNameAware` ，Spring提供了一系列`Aware`接口来允许bean指示容器其需要某一个 *infrastructure*  依赖。最重要的`Aware`接口如下，作为常规-name指示了依赖类型：
+
+| Name                             | Injected Dependency                                          | Explained in…                                                |
+| -------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `ApplicationContextAware`        | Declaring `ApplicationContext`                               | [ApplicationContextAware and BeanNameAware](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-factory-aware) |
+| `ApplicationEventPublisherAware` | Event publisher of the enclosing `ApplicationContext`        | [Additional capabilities of the ApplicationContext](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#context-introduction) |
+| `BeanClassLoaderAware`           | Class loader used to load the bean classes.                  | [Instantiating beans](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-factory-class) |
+| `BeanFactoryAware`               | Declaring `BeanFactory`                                      | [ApplicationContextAware and BeanNameAware](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-factory-aware) |
+| `BeanNameAware`                  | Name of the declaring bean                                   | [ApplicationContextAware and BeanNameAware](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-factory-aware) |
+| `BootstrapContextAware`          | Resource adapter `BootstrapContext`the container runs in. Typically available only in JCA aware `ApplicationContext`s | [JCA CCI](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/integration.html#cci) |
+| `LoadTimeWeaverAware`            | Defined *weaver* for processing class definition at load time | [Load-time weaving with AspectJ in the Spring Framework](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-ltw) |
+| `MessageSourceAware`             | Configured strategy for resolving messages (with support for parametrization and internationalization) | [Additional capabilities of the ApplicationContext](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#context-introduction) |
+| `NotificationPublisherAware`     | Spring JMX notification publisher                            | [Notifications](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/integration.html#jmx-notifications) |
+| `ResourceLoaderAware`            | Configured loader for low-level access to resources          | [Resources](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#resources) |
+| `ServletConfigAware`             | Current `ServletConfig` the container runs in. Valid only in a web-aware Spring `ApplicationContext` | [Spring MVC](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc) |
+| `ServletContextAware`            | Current `ServletContext` the container runs in. Valid only in a web-aware Spring `ApplicationContext` | [Spring MVC](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc) |
+
+请再次注意，这些接口的使用将您的代码与Spring API绑定在一起，并且不遵循IOC风格。因此，建议对需要对容器进行编程访问的基础设施bean进行推荐 。 
+
+### 1.7. Bean definition inheritance
+
+子bean继承父bean的元数据，并根据需要复写一些值，是一种模版的形式。
+
+如果你编程式使用`ApplicationContext`，子bean定义由`ChildBeanDefinition`类表示。大多数用户不在这个级别操作，而是声明式地配置bean定义比如`ClassPathXmlApplicationContext`。
+
+```
+<bean id="inheritedTestBean" abstract="true"
+        class="org.springframework.beans.TestBean">
+    <property name="name" value="parent"/>
+    <property name="age" value="1"/>
+</bean>
+
+<bean id="inheritsWithDifferentClass"
+        class="org.springframework.beans.DerivedTestBean"
+        parent="inheritedTestBean" init-method="initialize">
+    <property name="name" value="override"/>
+    <!-- the age property value of 1 will be inherited from parent -->
+</bean>
+```
+
+子类一定能接受父类的类型。子类继承了scope，构造器参数，属性值。余下的属性从子bean定义取：*depends on*, *autowire mode*, *dependency check*, *singleton*, *lazy init*。
+
+如果父类没指定类：
+
+```xml
+<bean id="inheritedTestBeanWithoutClass" abstract="true">
+    <property name="name" value="parent"/>
+    <property name="age" value="1"/>
+</bean>
+
+<bean id="inheritsWithClass" class="org.springframework.beans.DerivedTestBean"
+        parent="inheritedTestBeanWithoutClass" init-method="initialize">
+    <property name="name" value="override"/>
+    <!-- age will inherit the value of 1 from the parent bean definition-->
+</bean>
+```
+
+父bean不能自己实例化，因为它是不完整的，并且被显示指明abstract。这样的bean定义只能作为子ban定义的模版。如果你尝试`getBean`会返回错误。容器内部的`preInstantiateSingletons()`方法会忽略标记为abstract的beans定义。
+
+**`ApplicationContext`在默认情况下预先实例化所有单例。所以如果你想让一个父bean只是当做一个模版，它的定义也指定了class，你必须把abstract属性设置为true，否则application context会确实（尝试）预实例化abstract bean**
+
+## 1.8. Container Extension Points
+
+ioc容器可以插入特殊的集成接口进行扩展。
+
+### 1.8.1. Customizing beans using a BeanPostProcessor
+
+`BeanPostProcessor`接口定义了*callback methods*，你可以实现它（或覆盖容器默认的）来提供自己的实例化逻辑，依赖解决逻辑等等。如果您想在Spring容器完成实例化后实现一些自定义逻辑 ，您可以插入一个或多个`BeanPostProcessor`实现 。
+
+你可以配置多个`BeanPostProcessor`实例，也能通过order属性控制执行顺序。只有`BeanPostProcessor`实现了`Ordered`接口，才能设置这个属性。如果你自己实现也需要考虑实现Ordered。更多细节查看`BeanPostProcessor` and `Ordered` 文档。也可以看 [programmatic registration of `BeanPostProcessor`s](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-factory-programmatically-registering-beanpostprocessors) 。
 
 
+- **`BeanPostProcessor`s  是在对象实例上操作的；也就是说ioc容器实例化了bean后，`BeanPostProcessor`s 才工作。**
+- **`BeanPostProcessor`s 是每个容器scoped的。只有你使用container继承才有关系。如果你在一个容器定义了`BeanPostProcessor`，他只会在这个容器post-process。一个容器的beans定义，不会被定义在其他容器的`BeanPostProcessor` post-process，除非两个容器都是同一继承的一部分。**
+- **要改变bean定义，需要使用 [Customizing configuration metadata with a BeanFactoryPostProcessor](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-factory-extension-factory-postprocessors)描述的`BeanFactoryPostProcessor`**  
 
+`org.springframework.beans.factory.config.BeanPostProcessor`接口就包含2个方法。bean后处理程序通常检查回调接口，或者用代理包装bean。为了提供代理包装逻辑，一些Spring AOP基础设施类被实现为bean后处理程序。 
 
+`ApplicationContext`自动检测所有实现了`BeanPostProcessor`的beans的元数据，把他们注册成post-processors 然后在bean创建后被调用，Bean post-processors可以在容器中像其他beans一样被部署。
 
+注意，当在configuration类上使用`@bean`工厂方法声明BeanPostProcessor时， 工厂方法的返回类型应该是其自身的实现，或者至少是`org.springframework.beans.factory.config.BeanPostProcessor `接口，这清楚地表明了post-processor特性 否则，ApplicationContext将无法在完全创建之前自动检测它。 因为一个`BeanPostProcessor`为了apply到其他context中的beans的实例化，需要尽早实例化，这种预先类型检测是必要的。
 
+**以编程方式注册BeanPostProcessors**
 
+**虽然推荐通过application context自动检测注册`BeanPostProcessor`，使用`ConfigurableBeanFactory`的`addBeanPostProcessor`方法也是可以做到的。这在注册前评估条件逻辑很有用，甚至在一个层次的context复制bean post processors。这里是注册顺序决定执行顺序。还要注意的是，通过编程方式注册的beanpost处理器总是在通过自动检测注册之前进行处理，而不考虑任何显式的排序。**
 
+**BeanPostProcessors and AOP auto-proxying** 
 
+**实现了`BeanPostProcessor`接口的类是特殊的，会被容器特别对待。所有引用的`BeanPostProcessor`s 和beans都在启动时实例化，作为application context启动的一个特殊阶段。然后，所有`BeanPostProcessor`s 会被注册成排好序的形式，然后apply到容器的所有further bean。因为AOP auto-proxying 被实现为`BeanPostProcessor`本身，这些类直接引用的`BeanPostProcessor`s 和beans都被资格auto-proxying，因此不会织入aspect到其中。**
 
+**对于任何这样的Bean，您都应该看到一个信息日志消息：“Bean foo不适合由所有`BeanPostProcessor`接口进行处理（例如：没有资格进行自动代理）。**
 
+ **注意，如果你有使用autowiring或者`@Resource（可能会回到autowiring）`wire到`BeanPostProcessor`的beans，当搜索类型匹配依赖性候选者时，Spring可能会访问意想不到的bean ，因此，使它们没有资格进行自动代理或其他类型的bean后处理。 例如，你有一个依赖注解为`@Resource`，field/setter 的name没有被声明，Spring会通过type匹配来访问其他beans。**
 
+下面的例子展示了如何编写、注册和使用beanpost处理器：  
+
+#### Example: Hello World, BeanPostProcessor-style
+
+第一个例子说明了基本用法。BeanPostProcessor实现，它调用每个bean的toString（）方法，因为它是由容器创建的，并将产生的字符串打印到系统控制台。 
+
+```java
+package scripting;
+
+import org.springframework.beans.factory.config.BeanPostProcessor;
+
+public class InstantiationTracingBeanPostProcessor implements BeanPostProcessor {
+
+    // simply return the instantiated bean as-is
+    public Object postProcessBeforeInitialization(Object bean, String beanName) {
+        return bean; // we could potentially return any object reference here...
+    }
+
+    public Object postProcessAfterInitialization(Object bean, String beanName) {
+        System.out.println("Bean '" + beanName + "' created : " + bean.toString());
+        return bean;
+    }
+}
+```
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:lang="http://www.springframework.org/schema/lang"
+    xsi:schemaLocation="http://www.springframework.org/schema/beans
+        http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.springframework.org/schema/lang
+        http://www.springframework.org/schema/lang/spring-lang.xsd">
+
+    <lang:groovy id="messenger"
+            script-source="classpath:org/springframework/scripting/groovy/Messenger.groovy">
+        <lang:property name="message" value="Fiona Apple Is Just So Dreamy."/>
+    </lang:groovy>
+
+    <!--
+    when the above bean (messenger) is instantiated, this custom
+    BeanPostProcessor implementation will output the fact to the system console
+    -->
+    <bean class="scripting.InstantiationTracingBeanPostProcessor"/>
+
+</beans>
+```
+
+注意InstantiationTracingBeanPostProcessor 的定义，没有name，因为这是个像其他bean一样被dependency-injected 的bean。
+
+下面的简单Java应用程序执行前面的代码和配置： 
+
+```java
+import org.springframework.context.ApplicationContext;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
+import org.springframework.scripting.Messenger;
+
+public final class Boot {
+
+    public static void main(final String[] args) throws Exception {
+        ApplicationContext ctx = new ClassPathXmlApplicationContext("scripting/beans.xml");
+        Messenger messenger = (Messenger) ctx.getBean("messenger");
+        System.out.println(messenger);
+    }
+
+}
+```
+
+前面的应用程序的输出类似于以下内容： 
+
+```
+Bean 'messenger' created : org.springframework.scripting.groovy.GroovyMessenger@272961
+org.springframework.scripting.groovy.GroovyMessenger@272961
+```
+
+#### Example: The RequiredAnnotationBeanPostProcessor
+
+使用回调接口或注解，和自定义`BeanPostProcessor`的实现一起使用是扩展Spring IoC容器的常用方法。 一个例子是`RequiredAnnotationBeanPostProcessor`，ships with Spring distribution，确保被注解的JavaBean属性必须被设置一个属性。
+
+###  1.8.2. Customizing configuration metadata with a BeanFactoryPostProcessor
+
+下一个扩展点为`org.springframework.beans.factory.config.BeanFactoryPostProcessor`。这个借口的语义和`BeanPostProcessor`类似，有一个主要的不同，它作用于bean的配置元数据；就是说，ioc容器允许一个`BeanFactoryPostProcessor` 在容器实例化除了``BeanFactoryPostProcessor`的beans之前读取并且可能改变配置元数据。
+
+可定义多个``BeanFactoryPostProcesso`，通过设置order属性控制执行顺序。必须实现了Odered接口。
+
+**如果你想要改变实际的bean实例（例如，由配置元数据创建的对象 ）然后你需要使用`BeanPostProcessor`。虽然从技术上讲，可以在`BeanFactoryPostProcessor`中使用bean实例（比如，using `BeanFactory.getBean()` ），但是这样会导致bean过早实例化，违反标准容器生命周期。这可能会导致负面的副作用，比如绕过bean post处理 。**
+
+**此外，`BeanFactoryPostProcessor`也是每个per-container scoped的。** 
+
+一个  bean factory post-processor 当声明在application context里是自动执行的，目的是改变配置元数据。Spring包含许多预定义的 bean factory post-processors ，比如`PropertyOverrideConfigurer` and `PropertyPlaceholderConfigurer` 。也可自定义 `BeanFactoryPostProcessor` ，例如，注册自定义属性编辑器 。
+
+也是自动检测的，适时使用。
+
+与`BeanPostProcessor`s一样，您通常不希望为了懒加载初始化而配置`BeanFactoryPostProcesso`s  。如果没有其他Bean引用 `Bean(Factory)PostProcessor` ，post-processor 不会实例化。因此，将其标记为惰性初始化将被忽略 ，即使您将`Bean(Factory)PostProcessor` 默认的-lazy-init属性设置为true，也会被实例化。 
+
+##### Example: the Class name substitution PropertyPlaceholderConfigurer
+
+使用`PropertyPlaceholderConfigurer`来从文件读取属性，可以定制某些属性，避免修改容器的XML文件。
+
+考虑以下基于xml的配置元数据片段，`DataSource`  使用place holder被定义。这个例子展示了从外部属性文件配置的属性。 在运行时，PropertyPlaceholderConfigurer被应用到元数据中，该元数据将取代数据源的一些属性。 
+
+```
+<bean class="org.springframework.beans.factory.config.PropertyPlaceholderConfigurer">
+    <property name="locations" value="classpath:com/foo/jdbc.properties"/>
+</bean>
+
+<bean id="dataSource" destroy-method="close"
+        class="org.apache.commons.dbcp.BasicDataSource">
+    <property name="driverClassName" value="${jdbc.driverClassName}"/>
+    <property name="url" value="${jdbc.url}"/>
+    <property name="username" value="${jdbc.username}"/>
+    <property name="password" value="${jdbc.password}"/>
+</bean>
+```
+
+实际的值来自标准Java属性格式的另一个文件： 
+
+```
+jdbc.driverClassName=org.hsqldb.jdbcDriver
+jdbc.url=jdbc:hsqldb:hsql://production:9002
+jdbc.username=sa
+jdbc.password=root
+```
+
+他的`PropertyPlaceholderConfigurer`在大多数属性和bean定义的属性中检查占位符。此外，可以定制占位符前缀和后缀。 
+
+使用Spring 2.5提供的`context`  namespace，可以用专用的配置元素配置属性占位符 。一个或多个位置可以作为一个逗号分隔的列表在location属性中提供。
+
+```
+<context:property-placeholder location="classpath:com/foo/jdbc.properties"/>
+```
+
+`ropertyPlaceholderConfigurer` 不仅在你指定的属性文件中寻找属性。 默认情况下，如果不能在指定的属性文件中找到属性，它也会检查Java系统属性。  n
 
 
 
