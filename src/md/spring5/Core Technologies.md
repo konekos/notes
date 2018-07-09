@@ -6157,4 +6157,445 @@ public interface Parser<T> {
 }
 ```
 
-要创建您自己的格式化程序，只需实现上面的Formatter接口。 T是你想转换的类型，例如，`java.util.Date`。实现`print()` 操作来print一个T的实例展示在客户端环境。实现`parse()` 操作把T的实例转换
+要创建您自己的格式化程序，只需实现上面的Formatter接口。 T是你想转换的类型，例如，`java.util.Date`。实现`print()` 操作来print一个T的实例展示在客户端环境。实现`parse()` 操作把T的实例转换，从客户端返回的格式化形式。如果格式化失败抛出a ParseException or IllegalArgumentException。请注意确保您的格式化程序实现是线程安全的。 
+
+为了方便起见，在格式子包中提供了几个`format`子包实现。number包提供`NumberFormatter`, `CurrencyFormatter`, and `PercentFormatter`，使用`java.text.NumberFormat`， 格式化 `java.lang.Number` 对象。`datetime` 提供`DateFormatter` 格式化带有`java.text.DateFormat` 的`java.util.Date`对象。`datetime.joda`  包提供全面日期格式化支持 based on the [Joda-Time library](http://joda-time.sourceforge.net/)。
+
+把`DateFormatter`看作`DateFormatter`的实现：
+
+```
+package org.springframework.format.datetime;
+
+public final class DateFormatter implements Formatter<Date> {
+
+    private String pattern;
+
+    public DateFormatter(String pattern) {
+        this.pattern = pattern;
+    }
+
+    public String print(Date date, Locale locale) {
+        if (date == null) {
+            return "";
+        }
+        return getDateFormat(locale).format(date);
+    }
+
+    public Date parse(String formatted, Locale locale) throws ParseException {
+        if (formatted.length() == 0) {
+            return null;
+        }
+        return getDateFormat(locale).parse(formatted);
+    }
+
+    protected DateFormat getDateFormat(Locale locale) {
+        DateFormat dateFormat = new SimpleDateFormat(this.pattern, locale);
+        dateFormat.setLenient(false);
+        return dateFormat;
+    }
+
+}
+```
+
+####  3.6.2. Annotation-driven Formatting
+
+正如您将看到的，字段格式化可以通过field type或注解进行配置。要将注解绑定到formatter，请实现注解格式工厂： 
+
+```
+package org.springframework.format;
+
+public interface AnnotationFormatterFactory<A extends Annotation> {
+
+    Set<Class<?>> getFieldTypes();
+
+    Printer<?> getPrinter(A annotation, Class<?> fieldType);
+
+    Parser<?> getParser(A annotation, Class<?> fieldType);
+
+}
+```
+
+参数A为和转换逻辑关联的域注解类型，例如`org.springframework.format.annotation.DateTimeFormat`。让`getFieldTypes()` 返回注解用在其上的域类型。`getPrinter()` 返回Printer来打印注解域的值。`getParser()` 返回一个Parser来转换一个来自注解域的clientValue。
+
+下例AnnotationFormatterFactory实现把 @NumberFormat 绑定到了一个formatter。
+
+```
+public final class NumberFormatAnnotationFormatterFactory
+        implements AnnotationFormatterFactory<NumberFormat> {
+
+    public Set<Class<?>> getFieldTypes() {
+        return new HashSet<Class<?>>(asList(new Class<?>[] {
+            Short.class, Integer.class, Long.class, Float.class,
+            Double.class, BigDecimal.class, BigInteger.class }));
+    }
+
+    public Printer<Number> getPrinter(NumberFormat annotation, Class<?> fieldType) {
+        return configureFormatterFrom(annotation, fieldType);
+    }
+
+    public Parser<Number> getParser(NumberFormat annotation, Class<?> fieldType) {
+        return configureFormatterFrom(annotation, fieldType);
+    }
+
+    private Formatter<Number> configureFormatterFrom(NumberFormat annotation,
+            Class<?> fieldType) {
+        if (!annotation.pattern().isEmpty()) {
+            return new NumberFormatter(annotation.pattern());
+        } else {
+            Style style = annotation.style();
+            if (style == Style.PERCENT) {
+                return new PercentFormatter();
+            } else if (style == Style.CURRENCY) {
+                return new CurrencyFormatter();
+            } else {
+                return new NumberFormatter();
+            }
+        }
+    }
+}
+```
+
+To trigger formatting, simply annotate fields with @NumberFormat: 
+
+```
+public class MyModel {
+
+    @NumberFormat(style=Style.CURRENCY)
+    private BigDecimal decimal;
+
+}
+```
+
+##### Format Annotation API
+
+轻便的format注解api在`org.springframework.format.annotation` 包，使用 @NumberFormat 转换 java.lang.Number fields 。使用@DateTimeFormat 转换 java.util.Date, java.util.Calendar, java.util.Long, or Joda-Time fields。
+
+```
+public class MyModel {
+
+    @DateTimeFormat(iso=ISO.DATE)
+    private Date date;
+
+}
+```
+
+#### 3.6.3. FormatterRegistry SPI
+
+Review the FormatterRegistry SPI below:
+
+```
+package org.springframework.format;
+
+public interface FormatterRegistry extends ConverterRegistry {
+
+    void addFormatterForFieldType(Class<?> fieldType, Printer<?> printer, Parser<?> parser);
+
+    void addFormatterForFieldType(Class<?> fieldType, Formatter<?> formatter);
+
+    void addFormatterForFieldType(Formatter<?> formatter);
+
+    void addFormatterForAnnotation(AnnotationFormatterFactory<?, ?> factory);
+
+}
+```
+
+As shown above, Formatters can be registered by fieldType or annotation.
+
+The FormatterRegistry SPI allows you to configure Formatting rules centrally, instead of duplicating such configuration across your Controllers. For example, you might want to enforce that all Date fields are formatted a certain way, or fields with a specific annotation are formatted in a certain way. With a shared FormatterRegistry, you define these rules once and they are applied whenever formatting is needed.
+
+####  3.6.4. FormatterRegistrar SPI
+
+The FormatterRegistrar is an SPI for registering formatters and converters through the FormatterRegistry: 
+
+```
+package org.springframework.format;
+
+public interface FormatterRegistrar {
+
+    void registerFormatters(FormatterRegistry registry);
+
+}
+```
+
+A FormatterRegistrar is useful when registering multiple related converters and formatters for a given formatting category, such as Date formatting. It can also be useful where declarative registration is insufficient. For example when a formatter needs to be indexed under a specific field type different from its own <T> or when registering a Printer/Parser pair. The next section provides more information on converter and formatter registration. 
+
+#### 3.6.5. Configuring Formatting in Spring MVC
+
+See [Conversion and Formatting](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-config-conversion) in the Spring MVC chapter.
+
+### 3.7. Configuring a global date & time format
+
+默认没有标注`@DateTimeFormat`的是用`DateFormat.SHORT`风格转换的。如果您愿意，您可以通过定义自己的全局格式来改变这一点。 
+
+您将需要确保Spring不会注册默认格式化器，相反，您应该手动注册所有格式化程序。使用`org.springframework.format.datetime.joda.JodaTimeFormatterRegistrar` or`org.springframework.format.datetime.DateFormatterRegistrar`  取决于你是否使用了joda时间库。 
+
+例如，下面的Java配置将注册一个全局的“yyyyMMdd”格式。这个例子不依赖于joda-Time库： 
+
+```
+@Configuration
+public class AppConfig {
+
+    @Bean
+    public FormattingConversionService conversionService() {
+
+        // Use the DefaultFormattingConversionService but do not register defaults
+        DefaultFormattingConversionService conversionService = new DefaultFormattingConversionService(false);
+
+        // Ensure @NumberFormat is still supported
+        conversionService.addFormatterForFieldAnnotation(new NumberFormatAnnotationFormatterFactory());
+
+        // Register date conversion with a specific global format
+        DateFormatterRegistrar registrar = new DateFormatterRegistrar();
+        registrar.setFormatter(new DateFormatter("yyyyMMdd"));
+        registrar.registerFormatters(conversionService);
+
+        return conversionService;
+    }
+}
+```
+
+如果您喜欢基于XML的配置，您可以使用FormattingConversionServiceFactoryBean。这里是同样的例子，这次使用Joda-Time： 
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="
+        http://www.springframework.org/schema/beans
+        http://www.springframework.org/schema/beans/spring-beans.xsd>
+
+    <bean id="conversionService" class="org.springframework.format.support.FormattingConversionServiceFactoryBean">
+        <property name="registerDefaultFormatters" value="false" />
+        <property name="formatters">
+            <set>
+                <bean class="org.springframework.format.number.NumberFormatAnnotationFormatterFactory" />
+            </set>
+        </property>
+        <property name="formatterRegistrars">
+            <set>
+                <bean class="org.springframework.format.datetime.joda.JodaTimeFormatterRegistrar">
+                    <property name="dateFormatter">
+                        <bean class="org.springframework.format.datetime.joda.DateTimeFormatterFactoryBean">
+                            <property name="pattern" value="yyyyMMdd"/>
+                        </bean>
+                    </property>
+                </bean>
+            </set>
+        </property>
+    </bean>
+</beans>
+```
+
+**joda-Time提供了单独的不同类型来表示 `date`, `time` and `date-time` 值。`JodaTimeFormatterRegistrar`  的 `dateFormatter`, `timeFormatter` and `dateTimeFormatter`  属性应该应该用于为每种类型配置不同的格式。 `DateTimeFormatterFactoryBean` 为创建formatter提供了便利的方式。**
+
+如果您正在使用Spring MVC，请记住要显式地配置所使用的转换服务。 对于Java-Based的`@Configuration` 意味着扩展 `WebMvcConfigurationSupport` 类并覆盖 `WebMvcConfigurationSupport` 方法。For XML you should use the `'conversion-service'` attribute of the `mvc:annotation-driven` element. See [Conversion and Formatting](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-config-conversion) for details. 
+
+###  3.8. Spring Validation
+
+Spring 3引入了对其验证支持的一些增强。 首先，完全支持了JSR-303 Bean Validation API ，其次，当编程式使用时，Spring的DataBinder现在可以验证对象并绑定它们。 第三，Spring MVC现在支持声明式验证`@Controller`输入。 
+
+####  3.8.1. Overview of the JSR-303 Bean Validation API
+
+JSR-303标准化了Java平台的验证约束声明和元数据。使用这个API，您可以使用说明性的验证约束来注释领域模型属性，而运行时则强制执行它们。您可以利用一些内置的约束。您还可以定义自己的定制约束。 
+
+为了说明这一点，请考虑一个具有两个属性的简单的PersonForm模型： 
+
+```
+public class PersonForm {
+    private String name;
+    private int age;
+}
+```
+
+JSR-303允许您定义声明性验证约束这些属性： 
+
+```
+public class PersonForm {
+
+    @NotNull
+    @Size(max=64)
+    private String name;
+
+    @Min(0)
+    private int age;
+
+}
+```
+
+For general information on JSR-303/JSR-349, see the [Bean Validation website](http://beanvalidation.org/). For information on the specific capabilities of the default reference implementation, see the [Hibernate Validator](https://www.hibernate.org/412.html) documentation. To learn how to setup a Bean Validation provider as a Spring bean, keep reading. 
+
+#### 3.8.2. Configuring a Bean Validation Provider
+
+Spring为Bean验证API提供了完全的支持。 这包括方便地支持将JSR-303/JSR-349 Bean验证提供者作为Spring Bean来引导。 这允许你需要的时候注入 `javax.validation.ValidatorFactory` or `javax.validation.Validator`  。
+
+使用 `LocalValidatorFactoryBean` 作为默认校验器作为bean。
+
+```
+<bean id="validator"
+    class="org.springframework.validation.beanvalidation.LocalValidatorFactoryBean"/>
+```
+
+上面的基本配置将触发Bean验证来初始化使用它的默认引导机制。JSR-303/JSR-349提供者，如Hibernate验证器，预计将出现在类路径中，并将自动检测到。 
+
+#####  Injecting a Validator
+
+`LocalValidatorFactoryBean`实现了`javax.validation.ValidatorFactory` and `javax.validation.Validator`, as well as Spring’s `org.springframework.validation.Validator`。您可以将这些接口中的任何一个引用注入到需要调用验证逻辑的bean中。 
+
+注入一个引用到`javax.validation.Validator` 如果你更喜欢直接用Bean Validation API：
+
+```
+import javax.validation.Validator;
+
+@Service
+public class MyService {
+
+    @Autowired
+    private Validator validator;
+```
+
+注入引用到`org.springframework.validation.Validator` ，如果你的bean需要 Spring Validation API ：
+
+```
+import org.springframework.validation.Validator;
+
+@Service
+public class MyService {
+
+    @Autowired
+    private Validator validator;
+
+}
+```
+
+#####  Configuring Custom Constraints
+
+每个Bean验证约束由两个部分组成。第一`@Constraint` 注解表明约束和可配置的属性。第二，`javax.validation.ConstraintValidator` 接口的实现，实现约束的行为。将声明与实现相关联，每个`@Constraint` 注解引用一个对应的ValidationConstraint 实现类。运行时，你的domain model遇到了注解，一个`ConstraintValidatorFactory` 实例化引用的实现。
+
+默认 `LocalValidatorFactoryBean` 配置一个`SpringConstraintValidatorFactory` ，使用spring创建ConstraintValidator实例。这允许您的定制约束验证器从依赖注入中受益，就像任何其他Spring bean一样。 
+
+下面是个自定义 `@Constraint` 声明的例子，紧接着是使用spring依赖注入的 `ConstraintValidator`的实现。
+
+```
+@Target({ElementType.METHOD, ElementType.FIELD})
+@Retention(RetentionPolicy.RUNTIME)
+@Constraint(validatedBy=MyConstraintValidator.class)
+public @interface MyConstraint {
+}
+```
+
+```
+import javax.validation.ConstraintValidator;
+
+public class MyConstraintValidator implements ConstraintValidator {
+
+    @Autowired;
+    private Foo aDependency;
+
+    ...
+}
+```
+
+如你看到的，ConstraintValidator可以有自己的依赖，像其他bean一样@Autowired 。
+
+##### Spring-driven Method Validation
+
+Bean Validation 1.1支持的方法验证，同样由Hibernate Validator 4.3的自定义扩展，可以通过 `MethodValidationPostProcessor` bean定义集成到 Spring context。
+
+```
+<bean class="org.springframework.validation.beanvalidation.MethodValidationPostProcessor"/>
+```
+
+为了符合Spring驱动的方法验证，所有的目标类都需要用Spring的`@Validated`进行注解， 可选地声明要使用的验证组 。. Check out the `MethodValidationPostProcessor` javadocs for setup details with Hibernate Validator and Bean Validation 1.1 providers. 
+
+##### Additional Configuration Options
+
+对于大多数情况，默认的LocalValidatorFactoryBean配置应该是足够的。 There are a number of configuration options for various Bean Validation constructs, from message interpolation to traversal resolution. See the`LocalValidatorFactoryBean` javadocs for more information on these options. 
+
+#### 3.8.3. Configuring a DataBinder
+
+从Spring 3开始，可以使用验证器来配置DataBinder实例。一旦配置，Validator会被调用`binder.validate()`. 任何验证Errors会被绑定到binder’s BindingResult 。
+
+当编程式使用 DataBinder，可以用来在绑定后调用验证逻辑：
+
+```
+Foo target = new Foo();
+DataBinder binder = new DataBinder(target);
+binder.setValidator(new FooValidator());
+
+// bind to the target object
+binder.bind(propertyValues);
+
+// validate the target object
+binder.validate();
+
+// get BindingResult that includes any validation errors
+BindingResult results = binder.getBindingResult();
+```
+
+通过`dataBinder.addValidators` and `dataBinder.replaceValidators`配置多个`Validator`  实例，This is useful when combining globally configured Bean Validation with a Spring `Validator`configured locally on a DataBinder instance. See [[validation-mvc-configuring\]](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#validation-mvc-configuring). 
+
+#### 3.8.4. Spring MVC 3 Validation
+
+See [Validation](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-config-validation) in the Spring MVC chapter. 
+
+## 4. Spring Expression Language (SpEL)
+
+## 5. Aspect Oriented Programming with Spring
+
+### 5.1. Introduction
+
+*Aspect-Oriented Programming* (AOP)  是 Object-Oriented Programming (OOP) 的补足，提供另一种思考程序结构的方法。OOP的模块化关键单元是类，在AOP是*aspect*。切面使得关注的模块比如事务管理跨越多个类型和对象。（在AOP文献中，这种关注通常被称为横切关注点*crosscutting* 。 ）
+
+Spring的关键组件之一是AOP框架。 虽然Spring IoC容器并不依赖于AOP， 也就是说，如果你不想使用AOP，你就不需要使用，AOP补充了Spring IoC提供了一个非常有能力的中间件解决方案。 
+
+```
+								Spring 2.0+ AOP 
+spring 2.0引入一种更简单、更强大的编写定制切面的方法，using either a schema-based approach or the @AspectJ annotation style.这两种方式都提供了完全类型的advice和使用AspectJ pointcut语言，当为weaving使用spring AOP的时候。
+
+Spring 2.0+ schema- and @AspectJ-based AOP支持在本节讨论。 lower-level AOP支持，在Spring 1.2的应用程序中，将在接下来的章节中讨论。
+```
+
+AOP在Spring框架中被用于...
+
+- 提供声明企业服务，特别是EJB declarative services的替代。最重要的service是 [*declarative transaction management*](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#transaction-declarative) 。
+- 自定义切面，用AOP补足OOP。
+
+如果您只对一般的声明性服务或其他预打包的声明性中间件服务感兴趣，比如 pooling，您不需要直接与Spring AOP打交道，并且可以跳过这一章的大部分内容。 
+
+####  5.1.1. AOP concepts
+
+让我们首先定义一些核心的AOP概念和术语。这些术语不是特定于spring的...不幸，AOP术语并不是特别直观; 然而，如果Spring使用了自己的术语，则会更加令人困惑。 
+
+- *Aspect*: 一个关注的模块，切入许多类。在企业Java应用程序 Transaction management是横切关注点的一个很好的例子。在Spring AOP中，切面是使用常规类实现的（the [schema-based approach](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-schema)）或者带有 `@Aspect`注解的常规类(the [`@AspectJ` style](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-ataspectj) )。
+- *Join point*: 在执行程序时的一个点，例如执行一个方法或处理一个异常。 在Spring AOP中，连接点 *always*表示 method execution。 
+- *Advice*: 在指定join point上aspect采取的action。不同类型的advice包括 "around", "before" and "after" advice。(Advice types are discussed below.) 很多AOP框架，包括Spring，把advice建模为 *interceptor*，在 join point周围维护一系列的 *interceptor*。
+- *Pointcut*: 与join points匹配的predicate。advice和pointcut表达式相关联，在任何与pointcut匹配的join point上运行（例如，一个带有特定名称的方法的执行）。pointcut表达式匹配join points的概念是AOP的核心，在默认情况下，Spring使用AspectJ pointcut表达式语言。 
+- *Introduction*:  为类型声明额外的方法或field。Spring AOP允许向任何advised对象引入新的接口（和对应实现）。例如，你可以使用一个introduction来让bean实现`IsModified`接口，来简化缓存。  （在AspectJ社区中， introduction被称为inter-type declaration）
+- *Target object*: 被一个或多个切面advised的对象。简称之 advised object。由于Spring AOP是使用运行时代理实现的， 这个对象总是一个被代理的对象。 
+- *AOP proxy*:  由 AOP framework创建的对象，来实现aspect contracts（advise方法的执行等等）。在 Spring Framework，AOP proxy将是JDK dynamic proxy或CGLIB proxy。
+- *Weaving*: 将aspects和其他应用类型或对象相关联，来创建advised object。这可以在编译时 （例如，使用AspectJ编译器 ），加载时，或者运行时完成。Spring AOP和其他纯Java AOP框架一样，在运行时执行编织。 
+
+Types of advice: 
+
+- *Before advice*:  在join point之前执行的advice，它没能力阻止执行流到join point（除非它抛出异常 ）
+- *After returning advice*:  join point正常完成后执行的join point：例如，如果一个方法不抛出异常返回。 
+- *After throwing advice*:  如果一个方法抛出异常退出，而执行的advice。
+- *After (finally) advice*:  不管连接点退出的方法是什么，advice都执行（正常或异常返回）
+- *Around advice*:  围绕一个join point的advice，例如一个方法调用。这是最强大的advice。Around advice可以在方法调用之前和之后执行自定义行为。 它还负责选择是否继续进行 join point或缩短被建议的方法执行，通过返回它自己的返回值或抛出异常。
+
+Around advice是最通常类型的advice。因为Spring AOP像AspectJ一样，提供了一系列advice类型，我们建议使用 least powerful的advice来实现需要的行为。例如，如果您只需要用方法的返回值来更新缓存，你最好实现after returning advice，而不是around advice，虽然around advice可以做到同样的事情。使用最具体的advice类型提供一个更简单的编程模型，其错误的可能性更小。 你不需要调用用于around advice的`JoinPoint` 上的 `proceed()`方法，因此，不会调用失败。
+
+在Spring 2.0，所有advice参数是静态类型的，这样你就可以使用合适类型的advice参数（例如，从方法执行的返回值的类型 ），而不是`Objects`数组。
+
+join points的概念，与pointcuts相匹配，是AOP的关键，它将其与只提供拦截的旧技术区分开来。  Pointcuts 使advice独立于面向对象结构。例如，一个around advice提供声明式的事务管理，可以应用于一组跨越多个对象的方法（比如service层中的所有业务操作 ）。
+
+#### 5.1.2. Spring AOP capabilities and goals
+
+Spring AOP是纯Java实现的。 不需要一个特别的编译过程。 Spring AOP不需要控制类加载器层次结构，因此适合在Servlet容器或应用服务器中使用。
+
+Spring AOP目前只支持method execution join points（advising the execution of methods on Spring beans ）。Filed拦截没有实现，尽管可以在不破坏核心Spring AOP api的情况下添加对field拦截的支持。 如果你需要advice field access和更新join points，考虑比如AspectJ的语言。
+
+Spring AOP对AOP的方法不同于大多数的其他AOP框架。其目的不是提供最完整的AOP实现（虽然Spring AOP相当能干）；它更倾向于在AOP实现和Spring IoC之间提供一个紧密的集成来解决企业应用中的常见问题。
+
+因此，例如，Spring框架的AOP功能通常与Spring IoC容器一起使用。aspects是用普通bean定义语法配置的（虽然这允许强大的"autoproxying"能力）；这是与其他AOP实现的关键区别。有些事情你不能用AOP轻松有效地做到，比如advice非常细粒度的对象（比如特别是 domain objects ）：在这种情况下，AspectJ是最好的选择。然而，我们的经验是，Spring AOP为企业Java应用程序中的大多数问题提供了一个很好的解决方案，这些问题都是面向AOP的。 
+
