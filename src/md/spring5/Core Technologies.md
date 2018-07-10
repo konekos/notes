@@ -6599,3 +6599,356 @@ Spring AOP对AOP的方法不同于大多数的其他AOP框架。其目的不是�
 
 因此，例如，Spring框架的AOP功能通常与Spring IoC容器一起使用。aspects是用普通bean定义语法配置的（虽然这允许强大的"autoproxying"能力）；这是与其他AOP实现的关键区别。有些事情你不能用AOP轻松有效地做到，比如advice非常细粒度的对象（比如特别是 domain objects ）：在这种情况下，AspectJ是最好的选择。然而，我们的经验是，Spring AOP为企业Java应用程序中的大多数问题提供了一个很好的解决方案，这些问题都是面向AOP的。 
 
+Spring AOP不会力图和AspectJ竞争以提供全面的AOP解决方案。我们相信，像Spring AOP这样的基于代理的框架和像AspectJ这样的成熟框架都是有价值的，他们是互补的而不是竞争关系。Spring无缝地将Spring AOP和IoC与AspectJ集成在一起，让所有的AOP的使用迎合基于spring的应用程序体系结构。这种集成不会影响Spring AOP API或AOP Alliance API：Spring AOP保持向后兼容。See [the following chapter](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-api) for a discussion of the Spring AOP APIs. 
+
+**Spring Framework的一个核心准则是无侵入性；这个想法是你不应该引入特定于框架的类和接口到你的business/domain model。然而，在某些地方，Spring框架确实为您提供了将Spring框架特定的依赖关系引入到代码库中的选项：给你这样的选择的理由是，在某些情况下，用这种方式阅读或编码某些特定的功能可能会更容易一些。Spring框架（几乎）总是为您提供选择：您可以自由地做出明智的决定，选择哪种选项最适合您的特定用例或场景。** 
+
+**与本章相关的一个选择是选择哪种AOP框架（以及AOP风格）。 您可以选择AspectJ和/或Spring AOP， 你也可以选择@Aspectj注解风格的方法或者Spring XML配置样式的方法。事实是这章选择引入 @AspectJ-style方法，不应该被认为Spring相比XML更喜欢@AspectJ annotation-style。**
+
+**See [Choosing which AOP declaration style to use](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-choosing) for a more complete discussion of the whys and wherefores of each style.** 
+
+####  5.1.3. AOP Proxies
+
+Spring默认对AOP代理使用校准JDK *dynamic proxies*。这使得任何接口（或接口集）都可以被代理。 
+
+Spring AOP也可以用CGLIB proxies。这对于代理类而不是接口是必要的。如果业务对象没有实现接口，则默认使用CGLIB。 对接口而不是类进行编程是一种很好的做法；业务类通常实现一个或多个业务接口。有可能强制使用CGLIB，在那些（希望是罕见的）情况下，您需要为一个没有在接口上声明的方法提供advise，或者您需要将一个proxied对象传递给一个具体类型的方法。 
+
+理解Spring AOP是*proxy-based*的事实是很重要的。see  [Understanding AOP proxies](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-understanding-aop-proxies)  彻底检查这个实现细节的确切含义。 
+
+### 5.2. @AspectJ support
+
+@AspectJ指的是一种声明aspects的方式，在常规Java类上标注此注解。 @AspectJ 风格是由 [AspectJ project](https://www.eclipse.org/aspectj)引入，作为AspectJ 5的一部分。*：*Spring解释了与AspectJ 5相同的注解，使用AspectJ提供的库来进行pointcut的解析和匹配。AOP运行时仍然是纯Spring AOP，并且对AspectJ编译器或weaver没有依赖关系。 
+
+**使用AspectJ编译器和编织器可以使用完整的AspectJ语言，and is discussed in [Using AspectJ with Spring applications](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-using-aspectj).** 
+
+#### 5.2.1. Enabling @AspectJ Support
+
+要在Spring配置中使用@Aspectj切面，您需要启用Spring支持，以便基于@Aspectj切面来配置Spring AOP，根据这些是否被Aspect advised来确定自动代理beans。通过自动代理是说，如果Spring绝对一个bean被一个或多个aspect advised，它将自动生成一个代理，以便拦截方法调用，并确保根据需要执行建议。 
+
+ @AspectJ support可以用 XML or Java style configuration来启用。不管哪种情况你都要确认AspectJ’s `aspectjweaver.jar`库在classpath（version 1.8+）。
+
+##### Enabling @AspectJ Support with Java configuration
+
+add the `@EnableAspectJAutoProxy`  ：
+
+```
+@Configuration
+@EnableAspectJAutoProxy
+public class AppConfig {
+
+}
+```
+
+##### Enabling @AspectJ Support with XML configuration
+
+ use the `aop:aspectj-autoproxy` element: 
+
+```
+<aop:aspectj-autoproxy/> 
+```
+
+这假设您在用 [XML Schema-based configuration](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-schemas) 描述的schema support 。 See [the AOP schema](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-schemas-aop) for how to import the tags in the `aop` namespace. 
+
+####  5.2.2. Declaring an aspect
+
+ 启用了@AspectJ support，任何定义在application context的bean，是一个 @AspectJ 的aspect，将会被自动检测，并且被用于配置aop。下面是一个 not-very-useful Aspect的最小定义：
+
+常规的application context bean定义，指向一个带有 `@Aspect` 的类：
+
+```
+<bean id="myAspect" class="org.xyz.NotVeryUsefulAspect">
+    <!-- configure properties of aspect here as normal -->
+</bean>
+```
+
+ `NotVeryUsefulAspect` 类定义，带有 `org.aspectj.lang.annotation.Aspect` 注解：
+
+```
+package org.xyz;
+import org.aspectj.lang.annotation.Aspect;
+
+@Aspect
+public class NotVeryUsefulAspect {
+
+}
+```
+
+Aspects （带有 `@Aspect`注解的类）可能和其他类一样带有方法和field。他们也可能包含pointcut，advice，introduction(inter-type)声明。
+
+**Autodetecting aspects through component scanning** 
+
+**你可以注册aspects类作为beans到xml，像其他beans一样自动类路径扫描。然而，注意*@Aspect* 注解不足于自动检测：为了能自动检测，你需要添加 *@Component* （或者是一个定制的原型注解，根据Spring的组件扫描器的规则 ）**
+
+**Advising aspects with other aspects?** 
+
+**在Spring AOP，让aspects本事成为来自其他aspects的advice的目标是不可能的。*@Aspect* 注解在类上标注他为一个aspect，因此把他从auto-proxying排除。**
+
+#### 5.2.3. Declaring a pointcut
+
+回想一下pointscuts绝对感兴趣的join points，因此当advice执行时，让我们控制。Spring AOP只支持Spring beans的方法执行join points，所以你可以把pointcut想象成与Spring bean上的方法的执行相匹配。pointcut  声明有2个部分，一个包含name和任意参数的签名，一个pointcut表达式决定了哪个*exactly*我们关注的方法执行。在 @AspectJ annotation-style of AOP ，一个pointcut签名由常规方法定义提供，pointcut表达式使用 `@Pointcut`指示（作为pointcut签名的方法必须是void返回类型 ）。
+
+一个例子清楚区分pointcut signature and a pointcut expression 。下例定义了一个叫`'anyOldTransfer'` 的pointcut，匹配任何叫'transfer' 方法的执行。
+
+```
+@Pointcut("execution(* transfer(..))")// the pointcut expression
+private void anyOldTransfer() {}// the pointcut signature
+```
+
+形成`@Pointcut`注解的值的切入点表达式是一个常规的AspectJ 5切入点表达式。 关于AspectJ的切入点语言的完整讨论，see the [AspectJ Programming Guide](https://www.eclipse.org/aspectj/doc/released/progguide/index.html) (and for extensions, the [AspectJ 5 Developers Notebook](https://www.eclipse.org/aspectj/doc/released/adk15notebook/index.html)) or one of the books on AspectJ such as "Eclipse AspectJ" by Colyer et. al. or "AspectJ in Action" by Ramnivas Laddad. 
+
+##### Supported Pointcut Designators
+
+Spring AOP支持以下AspectJ pointcut designators (PCD) 用于pointcut切点表达式：
+
+```
+						Other pointcut types
+完整的AspectJ pointcut language支持额外的pointcut designators，而Spring不支持。它们是：call, get, set, preinitialization, staticinitialization, initialization, handler, adviceexecution, withincode, cflow, cflowbelow, if, @this, and @withincode. 在Spring用这些会抛出IllegalArgumentException。
+Spring AOP支持的 pointcut designators在将来可能会扩展
+```
+
+- *execution* - 用于匹配 join points方法执行，是你使用aop最基本的pointcut designator
+- *within* - 在几种类型限制匹配join points（简单地说，在使用Spring AOP时，在匹配类型中声明的方法的执行 ）
+- *this* - 限制匹配到join points时（the execution of methods when using Spring AOP），bean reference（Spring AOP proxy） 是一个给定类型的实例
+- *target* -限制匹配到join points时（the execution of methods when using Spring AOP），目标对象（application object being proxied）是一个给定类型的实例
+- *args* -限制匹配到join points时（the execution of methods when using Spring AOP），参数是给定类型的实例
+- *@target* - 限制匹配到join points时（the execution of methods when using Spring AOP），执行对象的类有一个给定类型的注解。
+- *@args* - 限制匹配到join points时（the execution of methods when using Spring AOP），传递的确切运行时参数的类型有给定类型的注解。
+- *@within* -限制匹配到join points在给定注解类型内（使用aop时，方法执行声明在给定注解的类型上）
+- *@annotation* - 限制匹配到join points，join point的subject（AOP里执行的方法）有给定注解。
+
+因为Spring AOP只在方法执行join points限制匹配，上面的pointcut designators的讨论给出了一个比AspectJ编程指南中所能找到的更窄的定义。另外，AspectJ有基于类型的语义，并且在执行连接点 `this` and `target` 引用同一个对象-执行方法的对象。Spring AOP是proxy-based system。区分代理对象本身（绑定到`this`）和代理背后的目标对象（绑定到`target`）。 
+
+**由于Spring AOP框架的基于代理的特性，目标对象中的调用根据定义没有被拦截。对于JDK代理，只有在代理上调用的public接口方法才能被拦截。使用CGLIB，代理上调用的public and protected方法会被拦截，甚至必要时包可见方法也会被拦截。然而，普通的通过代理的交互总是通过public签名设计的。**
+
+**注意pointcut 定义通常与被拦截的方法相匹配。如果一个pointcut严格意义上是public-only，即使是使用CGLIB的场景使用潜在的通过代理的no-public交互，它需要对应被定义。**
+
+**如果你的拦截需要方法调用甚至在目标类中的构造器，考虑使用Spring-driven [native AspectJ weaving](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-ltw) 而不是Spring’s proxy-based AOP framework。这构成了具有不同特征的AOP使用的不同模式，所以，在做决定之前一定要先熟悉一下weaving。** 
+
+Spring AOP也支持额外的PCD命名的`bean`.PCD 允许限制一个join points匹配到一个特定名字的bean，或者是一系列名字的beans（当使用通配符）。`bean` PCD  形式如下：
+
+```
+bean(idOrNameOfBean)
+```
+
+ `idOrNameOfBean` token可以是任意Spring bean的name：支持 `*`  作为通配符，因此，如果您为Spring bean建立了一些命名约定，您可以很容易地编写一个bean PCD表达式来挑选它们。 与其他切入点指示器的情况一样，bean PCD可以是  &&'ed, ||'ed, and ! (negated) 。
+
+**注意 `bean` PCD 只在Spring AOP支持，native AspectJ weaving并不支持。这是Spring对AspectJ定义的standard PCDs的特定扩展，在`@Aspect`  声明的模型里不适用。**
+
+ **`bean` PCD 在 实例 级别操作（以Spring bean名称的概念为基础  ），而不是只在类型级别上 （ weaving-based AOP的限制）。 Instance-based pointcut designators是Spring’s proxy-based AOP framework的特性，它与Spring bean factory的紧密集成，用名称来标识特定的bean是自然而直接的。** 
+
+##### Combining pointcut expressions
+
+using '&&', '||' and '!' 结合Pointcut expressions。也可以通过name引用pointcut expressions。下面的例子展示了三个切入点表达式：`anyPublicOperation`（匹配任意public方法）  ；`inTrading`  （匹配 in the trading module 的方法执行）；`tradingOperation`（两种合并）  。
+
+```
+@Pointcut("execution(public * *(..))")
+private void anyPublicOperation() {}
+
+@Pointcut("within(com.xyz.someapp.trading..*)")
+private void inTrading() {}
+
+@Pointcut("anyPublicOperation() && inTrading()")
+private void tradingOperation() {}
+```
+
+从较小的命名组件中构建更复杂的切入点表达式是一种最佳实践。当以name引用切入点时，普通Java可见性规则适用（你可以在同一类型中看到私有切入点，在层次结构中受保护的切入点，任何地方的公共切入点等等 ）。可见性并不影响切入点匹配。
+
+##### Sharing common pointcut definitions
+
+在处理企业应用程序时，您通常想要从几个aspect引用应用程序的模块和特定的操作集。我们建议定义"SystemArchitecture" Aspect，捕获常见的pointcut表达式。典型的这样一个Aspect： 
+
+```
+package com.xyz.someapp;
+
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Pointcut;
+
+@Aspect
+public class SystemArchitecture {
+
+    /**
+     * A join point is in the web layer if the method is defined
+     * in a type in the com.xyz.someapp.web package or any sub-package
+     * under that.
+     */
+    @Pointcut("within(com.xyz.someapp.web..*)")
+    public void inWebLayer() {}
+
+    /**
+     * A join point is in the service layer if the method is defined
+     * in a type in the com.xyz.someapp.service package or any sub-package
+     * under that.
+     */
+    @Pointcut("within(com.xyz.someapp.service..*)")
+    public void inServiceLayer() {}
+
+    /**
+     * A join point is in the data access layer if the method is defined
+     * in a type in the com.xyz.someapp.dao package or any sub-package
+     * under that.
+     */
+    @Pointcut("within(com.xyz.someapp.dao..*)")
+    public void inDataAccessLayer() {}
+
+    /**
+     * A business service is the execution of any method defined on a service
+     * interface. This definition assumes that interfaces are placed in the
+     * "service" package, and that implementation types are in sub-packages.
+     *
+     * If you group service interfaces by functional area (for example,
+     * in packages com.xyz.someapp.abc.service and com.xyz.someapp.def.service) then
+     * the pointcut expression "execution(* com.xyz.someapp..service.*.*(..))"
+     * could be used instead.
+     *
+     * Alternatively, you can write the expression using the 'bean'
+     * PCD, like so "bean(*Service)". (This assumes that you have
+     * named your Spring service beans in a consistent fashion.)
+     */
+    @Pointcut("execution(* com.xyz.someapp..service.*.*(..))")
+    public void businessService() {}
+
+    /**
+     * A data access operation is the execution of any method defined on a
+     * dao interface. This definition assumes that interfaces are placed in the
+     * "dao" package, and that implementation types are in sub-packages.
+     */
+    @Pointcut("execution(* com.xyz.someapp.dao.*.*(..))")
+    public void dataAccessOperation() {}
+
+}
+```
+
+在这样一个方面定义的切入点可以被引用到任何需要切入点表达式的地方。例如，为了使服务层事务化，您可以写： 
+
+```
+<aop:config>
+    <aop:advisor
+        pointcut="com.xyz.someapp.SystemArchitecture.businessService()"
+        advice-ref="tx-advice"/>
+</aop:config>
+
+<tx:advice id="tx-advice">
+    <tx:attributes>
+        <tx:method name="*" propagation="REQUIRED"/>
+    </tx:attributes>
+</tx:advice>
+```
+
+The `<aop:config>` and `<aop:advisor>` elements are discussed in [Schema-based AOP support](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-schema). The transaction elements are discussed in [Transaction Management](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/data-access.html#transaction). 
+
+##### Examples
+
+Spring 用户最经常可能使用`execution` pointcut designator。execution 表达式格式：
+
+```
+execution(modifiers-pattern? ret-type-pattern declaring-type-pattern?name-pattern(param-pattern)
+            throws-pattern?)
+```
+
+所有部分除了returning type pattern（上面的ret-type-pattern）， name pattern和 parameters pattern都是可选的。returning type pattern决定了该方法的返回类型必须是什么，以便匹配连接点。 通常使用`*`作为返回类型，匹配任意返回类型。只有当方法返回给定的类型时，才会匹配全限定类型名称。 name pattern 匹配方法名。您可以使用通配符`*`作为name pattern的全部或部分。 如果指定一个声明的type pattern包含一个`.`结尾，连接到name pattern组件。parameters pattern 稍稍变得复杂：`()`  匹配一个没有参数的方法，`(..)` 匹配任意数量参数的方法（0 or more）。`(*)`  匹配有一个任意参数的方法，`(*,String)`  匹配第一个参数任意，第二个为String的方法。Consult the[Language Semantics](https://www.eclipse.org/aspectj/doc/released/progguide/semantics-pointcuts.html) section of the AspectJ Programming Guide for more information. 
+
+一些常见pointcut expressions例子如下，
+
+- the execution of any public method: 
+
+  ```
+  execution(public * *(..))
+  ```
+
+- the execution of any method with a name beginning with "set": 
+
+  ```
+  execution(* set*(..))
+  ```
+
+- the execution of any method defined by the `AccountService` interface: 
+
+  ```
+  execution(* com.xyz.service.AccountService.*(..))
+  ```
+
+- the execution of any method defined in the service package: 
+
+  ```
+  execution(* com.xyz.service.*.*(..))
+  ```
+
+- the execution of any method defined in the service package or a sub-package: 
+
+  ```
+  execution(* com.xyz.service..*.*(..))
+  ```
+
+- any join point (method execution only in Spring AOP) within the service package: 
+
+  ```
+  within(com.xyz.service.*)
+  ```
+
+- any join point (method execution only in Spring AOP) within the service package or a sub-package: 
+
+  ```
+  within(com.xyz.service..*)
+  ```
+
+- any join point (method execution only in Spring AOP) where the proxy implements the `AccountService` interface: 
+
+  ```
+  this(com.xyz.service.AccountService)
+  ```
+
+  **`this`和`target`和`args`和`@target`和`@within`和`@annotation `和`@args` 通常以绑定的形式使用：看下节，怎么让代理对象在advice body可用。**
+
+- any join point (method execution only in Spring AOP) where the target object implements the `AccountService` interface: 
+
+  ```
+  target(com.xyz.service.AccountService)
+  ```
+
+- any join point (method execution only in Spring AOP) which takes a single parameter, and where the argument passed at runtime is `Serializable`: 
+
+  ```
+  args(java.io.Serializable)
+  ```
+
+  注意给出的整个例子和 `execution(* *(java.io.Serializable))`是不同的，如果在运行时传递的参数是 Serializable，args 版本会匹配，execution版本匹配的是方法签名为一个`Serializable`的参数。
+
+- any join point (method execution only in Spring AOP) where the target object has an `@Transactional` annotation: 
+
+  ```
+  @target(org.springframework.transaction.annotation.Transactional)
+  ```
+
+- any join point (method execution only in Spring AOP) which takes a single parameter, and where the runtime type of the argument passed has the `@Classified` annotation: 
+
+  ```
+  @args(com.xyz.security.Classified)
+  ```
+
+- any join point (method execution only in Spring AOP) on a Spring bean named `tradeService`: 
+
+  ```
+  bean(tradeService)
+  ```
+
+- any join point (method execution only in Spring AOP) on Spring beans having names that match the wildcard expression `*Service`: 
+
+  ```
+  bean(*Service)
+  ```
+
+##### Writing good pointcuts
+
+在编译过程中，AspectJ处理pointcut以尝试和优化匹配表现。检查代码并确定每个join point匹配（静态或动态地）给定pointcut是一个代价高昂的过程。（动态匹配意味着匹配不能从静态分析中完全确定，并且将在代码中放置一个测试，以确定代码是否在运行时是否有真正的匹配 ）。当第一次遇到pointcut 声明，AspectJ将把它重写用于匹配过程的最佳形式。这意味着什么？基本上，pointcuts 被重写成DNF（Disjunctive Normal Form ），pointcut的组件被排序，这样这些组件被认定为廉价而首先被检测。这意味着，你不需要担心理解各种pointcut designators的性能表现，可以在切入点声明中以任何顺序提供它们。 
+
+然而，AspectJ只能使用它被告知的内容，为了达到最佳匹配的性能你应该考虑他们想要达到的目标并尽可能缩小匹配的搜索空间。存在的designators 自然地分成3组：kinded, scoping and context: 
+
+- Kinded designators 选择一种特定种类的 join point。例如：execution, get, set, call, handler 
+- Scoping designators 选择一组关注的 join points（可能很多种）。例如：within, withincode 
+- Contextual designators 基于context匹配（bind可选）。例如：this, target, @annotation 
+
+一个写的好的pointcut至少包含前两种。如果希望根据joinpoint context匹配可以同时包含contextual designators ，或者在advice中绑定context以使用。仅提供一个kinded designator 或者contextual designator 会工作，但是由于所有额外的处理和分析，可能会影响编织性能（使用的时间和内存）。Scoping designators匹配非常快，它们的使用意味着AspectJ可以非常快速地忽略不应该进一步处理的连接点组——这就是为什么一个好的切入点应该总是包含一个这个连接点。  
+
+#### 5.2.4. Declaring advice
+
+advice和pointcut expression关联，并且在由pointcut匹配的方法执行上before, after, or around runs。pointcut expression可以是一个命名的pointcut的简单引用，或者合适地方声明的pointcut expression 。
