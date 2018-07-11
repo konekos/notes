@@ -6952,3 +6952,429 @@ execution(modifiers-pattern? ret-type-pattern declaring-type-pattern?name-patter
 #### 5.2.4. Declaring advice
 
 advice和pointcut expression关联，并且在由pointcut匹配的方法执行上before, after, or around runs。pointcut expression可以是一个命名的pointcut的简单引用，或者合适地方声明的pointcut expression 。
+
+##### Before advice
+
+Before advice是声明在一个切面里，使用`@Before` 注解：
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+
+@Aspect
+public class BeforeExample {
+
+    @Before("com.xyz.myapp.SystemArchitecture.dataAccessOperation()")
+    public void doAccessCheck() {
+        // ...
+    }
+
+}
+```
+
+如果就地使用 pointcut表达式，可以写成：
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Before;
+
+@Aspect
+public class BeforeExample {
+
+    @Before("execution(* com.xyz.myapp.dao.*.*(..))")
+    public void doAccessCheck() {
+        // ...
+    }
+
+}
+```
+
+#####  After returning advice
+
+After returning advice在 matched method execution普通返回时执行。使用 `@AfterReturning`声明：
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.AfterReturning;
+
+@Aspect
+public class AfterReturningExample {
+
+    @AfterReturning("com.xyz.myapp.SystemArchitecture.dataAccessOperation()")
+    public void doAccessCheck() {
+        // ...
+    }
+
+}
+```
+
+**注意：当然有可能有多个advice声明，以及其他成员，都在同一个Aspect。我们只展示了一个advice声明在这些例子，关注正在讨论的问题。** 
+
+有时候，您需要在advice体中访问返还的实际值。 可以使用 `@AfterReturning` 绑定返回值的形式：
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.AfterReturning;
+
+@Aspect
+public class AfterReturningExample {
+
+    @AfterReturning(
+        pointcut="com.xyz.myapp.SystemArchitecture.dataAccessOperation()",
+        returning="retVal")
+    public void doAccessCheck(Object retVal) {
+        // ...
+    }
+
+}
+```
+
+ `returning` 属性中用的name，要和advice中的参数name一致。当一个方法执行返回了，返回值将作为对应参数值返回给advice方法。 `returning`语句约束了只匹配返回特定类型的方法执行（此例是`Object`，匹配任何返回值  ）。
+
+请注意，当使用after-returning advice，不可能返回完全不同的引用。
+
+##### After throwing advice
+
+After throwing advice当匹配方法抛出异常执行。使用`@AfterThrowing` 注解：
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.AfterThrowing;
+
+@Aspect
+public class AfterThrowingExample {
+
+    @AfterThrowing("com.xyz.myapp.SystemArchitecture.dataAccessOperation()")
+    public void doRecoveryActions() {
+        // ...
+    }
+
+}
+```
+
+通常，只有当给定类型的异常被抛出匹配方法执行退出时，您才希望建议只运行，你也经常需要在advice body访问抛出的异常。使用`throwing`  属性来同时限制匹配（如果需要，可以使用 `Throwable`作为异常类型 ）和把抛出异常绑定到advice参数。
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.AfterThrowing;
+
+@Aspect
+public class AfterThrowingExample {
+
+    @AfterThrowing(
+        pointcut="com.xyz.myapp.SystemArchitecture.dataAccessOperation()",
+        throwing="ex")
+    public void doRecoveryActions(DataAccessException ex) {
+        // ...
+    }
+
+}
+```
+
+在`throwing` 属性用的name和advice方法参数的name一致。当一个方法执行通过抛出一个异常来退出时，异常会被传递给advice方法作为对应的参数值。`throwing` 语句也限制了匹配，只会匹配抛出了给定异常的方法执行（本例为`DataAccessException`  ）。
+
+##### After (finally) advice
+
+After (finally) advice当匹配方法执行退出时执行。使用`@After` 注解。After advice 一定要准备好去处理正常返回和异常返回两种情况。它通常用于释放资源，等等。 
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.After;
+
+@Aspect
+public class AfterFinallyExample {
+
+    @After("com.xyz.myapp.SystemArchitecture.dataAccessOperation()")
+    public void doReleaseLock() {
+        // ...
+    }
+
+}
+```
+
+##### Around advice
+
+最后是around advice类型。Around advice 在匹配方法执行的“around”执行。他有机会做both before and after the method executes的工作，并决定何时，如何甚至这个方法是否真的执行。Around advice 通常用于在一个方法执行的前后share state，以线程安全的方式（例如启动和停止一个timer）。总是使用最不强大的advice形式来满足你的需求（例如如果简单before advice就能做，那么别用around advice）。
+
+使用`@Around` 注解声明Around advice。advice 方法第一个参数必须是`ProceedingJoinPoint`。在advice body内，调用`ProceedingJoinPoint` 上的`proceed()`导致底层方法的执行。`proceed` 方法也可以被调用以Object[]形式传递——数组中的值会被用作方法执行的参数。
+
+**当带有Object[]对象的调用被proceed，和 AspectJ 编译器编译的around advice的proceed过程不同。对于使用传统 AspectJ语言写的around advice，传递给proceed 的参数一定要匹配传递给around advice的参数（不是底层join point记录的参数），在给定的参数位置传递给proceed的值在 join point 代替原始值，对于值要绑定到上去的实体（如果这没有意义，别担心）。Spring采用的方法更简单，更好地匹配proxy-based, execution only的语义。如果您正在编译为Spring编写的@AspectJ切面，并使用AspectJ编译器和weaver的参数，那么您只需要知道这种差异。 有一种方法可以在Spring AOP和AspectJ中编写百分百兼容的Aspect，这将在接下来的关于advice参数的小节中讨论。** 
+
+```
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.ProceedingJoinPoint;
+
+@Aspect
+public class AroundExample {
+
+    @Around("com.xyz.myapp.SystemArchitecture.businessService()")
+    public Object doBasicProfiling(ProceedingJoinPoint pjp) throws Throwable {
+        // start stopwatch
+        Object retVal = pjp.proceed();
+        // stop stopwatch
+        return retVal;
+    }
+
+}
+```
+
+ around advice 返回的值，将会是这个方法的调用者看到的返回值。例如一个简单的缓存Aspect可以从缓存里返回值如果有，调用 proceed() 如果没有。注意around advice body内的proceed可能会被调用一次，多次，或者一次没有，所有的情况都是合法的。
+
+##### Advice parameters
+
+Spring提供了全类型的 advice ——意味着你可以在 advice 签名声明需要的参数（正如我们在上面看到的返回和抛出的例子 ）而不是总是使用`Object[]` 。我们将会看到如何把参数和其他上下文的值对advice body可用。首先看一下如何写一个通用advice，找出advice正在advising的方法。
+
+###### Access to the current JoinPoint
+
+一个advice method可能声明它的第一个参数，一种`org.aspectj.lang.JoinPoint` 参数类型（请注意around advice需要声明第一个参数类型是`ProceedingJoinPoint，`他是`JoinPoint`的子类。`JoinPoint` 接口提供了一些有用的方法比如 `getArgs()` （返回方法参数）， `getThis()`（返回代理对象）， `getTarget()`  （返回目标对象），`getSignature()`  （返回被advised方法的描述），`toString()`  （打印一个有用的被advised方法的描述信息））。Please do consult the javadocs for full details. 
+
+ ###### Passing parameters to advice 
+
+我们已经看到如何绑定返回的值或者异常值（使用after returning and after throwing advice ）。为了使参数值对advice body可用，你可以使用`args`的形式绑定。如果一个参数name在args表达式代替了一个type name，对应参数的值会被作为参数值传递当advice被调用时。1个例子应该使这个更清楚。 假设你想advise dao  operations  的执行，把Account 对象作为第一个参数，你需要在advice body访问account。
+
+```
+@Before("com.xyz.myapp.SystemArchitecture.dataAccessOperation() && args(account,..)")
+public void validateAccount(Account account) {
+    // ...
+}
+```
+
+`args(account,..)` 作为pointcut表达式的一部分有2个目的：限制了匹配，只有那些至少一个方法，the argument passed to that parameter 是一个`Account`的实例的方法执行才匹配；第二，使`Account` 对象通过`account` 参数对advice可用。
+
+另一种写法，声明一个pointcut 当它匹配到一个Join point“提供“ `Account` 对象，然后仅仅引用被命名的来自advice的pointcut。
+
+```
+@Pointcut("com.xyz.myapp.SystemArchitecture.dataAccessOperation() && args(account,..)")
+private void accountDataAccessOperation(Account account) {}
+
+@Before("accountDataAccessOperation(account)")
+public void validateAccount(Account account) {
+    // ...
+}
+```
+
+The interested reader is once more referred to the AspectJ programming guide for more details. 
+
+代理对象( `this`) ，目标对象 ( `target`) ，和注解( `@within, @target, @annotation, @args`)  都可以以相同的方式绑定。下例展示了怎么匹配带有 `@Auditable` 的方法执行。
+
+首先定义`@Auditable`  ：
+
+```
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.METHOD)
+public @interface Auditable {
+    AuditCode value();
+}
+```
+
+匹配 `@Auditable`方法执行的advice：
+
+```
+@Before("com.xyz.lib.Pointcuts.anyPublicMethod() && @annotation(auditable)")
+public void audit(Auditable auditable) {
+    AuditCode code = auditable.value();
+    // ...
+}
+```
+
+###### Advice parameters and generics 
+
+Spring AOP可以处理用在class和方法参数声明的泛型。假设你有：
+
+```
+public interface Sample<T> {
+    void sampleGenericMethod(T param);
+    void sampleGenericCollectionMethod(Collection<T> param);
+}
+```
+
+你可以通过某些参数类型限制方法类型匹配，通过：
+
+```
+@Before("execution(* ..Sample+.sampleGenericMethod(*)) && args(param)")
+public void beforeSampleMethod(MyType param) {
+    // Advice implementation
+}
+```
+
+这是很明显的，就像我们已经讨论过的。 然而，值得指出的是，这对于泛型集合来说是行不通的。 所以你不能定义这样的切入点： 
+
+```
+@Before("execution(* ..Sample+.sampleGenericCollectionMethod(*)) && args(param)")
+public void beforeSampleMethod(Collection<MyType> param) {
+    // Advice implementation
+}
+```
+
+为了完成这项工作，我们必须检查集合中的每一个元素，这是不合理的，因为我们也不能决定如何一般地对待null值。 为了达到相同效果，你必须把参数改为`Collection<?>` 且手动检查元素的类型。
+
+ ###### Determining argument names 
+
+绑定在advice调用的参数依赖于把切入点表达式中使用的name匹配到方法签名（通知和切入点）中声明的参数名。参数names通过Java反射是不可用的，Spring AOP使用以下策略绝对参数name：
+
+- 如果参数names被用户显示指定，则使用指定名称：advice and the pointcut annotations都有可选的 "argNames"  属性用于指定注解方法的参数names-这些参数在运行时可用。
+
+  ```
+  @Before(value="com.xyz.lib.Pointcuts.anyPublicMethod() && target(bean) && @annotation(auditable)",
+          argNames="bean,auditable")
+  public void audit(Object bean, Auditable auditable) {
+      AuditCode code = auditable.value();
+      // ... use code and bean
+  }
+  ```
+
+  如果第一个参数是`JoinPoint`, `ProceedingJoinPoint`, or `JoinPoint.StaticPart` 类型的，您可以从“argNames”属性的值中省略参数的名称。例如，如果您修改前面的advice来接收pointcut对象，那么“argNames”属性不需要包括：
+
+  ```
+  @Before(value="com.xyz.lib.Pointcuts.anyPublicMethod() && target(bean) && @annotation(auditable)",
+          argNames="bean,auditable")
+  public void audit(JoinPoint jp, Object bean, Auditable auditable) {
+      AuditCode code = auditable.value();
+      // ... use code, bean, and jp
+  }
+  ```
+
+  对第一个参数类型为 `JoinPoint`, `ProceedingJoinPoint`, and `JoinPoint.StaticPart` 的处理对advice很方便，不要收集任何其他连接点上下文。在这种情况下，您可能只是省略了“argname”属性。例如，以下advice不必声明“argname”属性： 
+
+  ```
+  @Before("com.xyz.lib.Pointcuts.anyPublicMethod()")
+  public void audit(JoinPoint jp) {
+      // ... use jp
+  }
+  ```
+
+- 使用'argNames' 有点笨拙，因此如果'argNames' 没有被指定， Spring AOP 会查找类的debug信息，从局部变量表决定参数name。只要使用调试信息编译类，这些信息就会出现。（最低限度'-g:vars' ）。用这面标识进行编译的后果是： 1.您的代码将会更容易理解（逆向工程）2.类文件的大小会稍微大一些（通常是无关紧要的）；删除未使用的局部变量的优化将不会被编译器应用。 换句话说，你应该在这个标识上没有遇到任何困难。
+
+  **如果一个@AspectJ的Aspect已经被AspectJ compiler (ajc)编译，甚至没有debug信息，那么不需要添加argNames属性，编译器会返回需要的信息。**
+
+- 如果代码被编译并且没有必要的debug信息， Spring AOP  会尝试推导出绑定变量与参数的配对（例如，如果切点表达式只有一个变量，方法就一个参数，那就很明显了）。如果给定的信息，变量的绑定是模糊的 ，抛出 `AmbiguousBindingException` 。
+
+- 如果以上策略都失败了，抛出 `IllegalArgumentException` 。
+
+ ###### Proceeding with arguments 
+
+我们之前说过，我们将描述如何用Spring AOP和AspectJ描述一个持续运行的参数的调用。他的解决方案只是为了确保建议签名能够按顺序绑定每个方法参数。 例如：
+
+```java
+@Around("execution(List<Account> find*(..)) && " +
+        "com.xyz.myapp.SystemArchitecture.inDataAccessLayer() && " +
+        "args(accountHolderNamePattern)")
+public Object preProcessQueryPattern(ProceedingJoinPoint pjp,
+        String accountHolderNamePattern) throws Throwable {
+    String newPattern = preProcess(accountHolderNamePattern);
+    return pjp.proceed(new Object[] {newPattern});
+}
+```
+
+在很多情况下，您将会执行这个绑定（如上面的示例） 。
+
+##### Advice ordering
+
+当多个advice都想在同一个 join point上运行时会发生什么？ Spring AOP遵循和AspectJ一样的优先级规则决定advice的执行顺序。最高优先级的advice先运行 "on the way in"  （给定了两个before advice，最高优先级的是先运行）。从一个join point "On the way out"  ，最高优先级的advice最后运行。（给定两个after advice，最后优先级的第二个运行。）
+
+当两个不同Aspect定义的建议都需要在同一个join point上运行，除非您指定否则执行的顺序是未定义的。 您可以通过指定优先级来控制执行顺序。这是用正常的Spring方法完成的 ，在Aspect类实现 `org.springframework.core.Ordered` 接口或者使用`Order` 注解。给定两个Aspect， `Ordered.getValue()`（或注解值）返回较低的值有较高的优先级。
+
+当定义在同一Aspect的两个advice要在同一个join point运行，顺序未定义（因为没办法对javac编译的类通过反射检索顺序声明）。考虑在每个Aspect类中，将这些方法折叠成一个advice方法，或者将advice的各个部分重构到单独的Aspect类中——这些类可以在Aspect级别上排序。 
+
+####  5.2.5. Introductions
+
+Introductions （在AspectJ中被称为内部类型声明 ）使一个Aspect声明被advised的对象实现给定接口，并代表这些对象提供该接口的实现。 
+
+使用 `@DeclareParents` 注解做一个introduction 。这个注释用于声明匹配类型有一个新的parent（对应名字）。例如，给定`UsageTracked`接口，一个此接口的实现`DefaultUsageTracked`，以下Aspect声明所有service接口的实现者都要实现`UsageTracked` 接口（例如为了通过JMX公开统计信息 ）。
+
+```java
+@Aspect
+public class UsageTracking {
+
+    @DeclareParents(value="com.xzy.myapp.service.*+", defaultImpl=DefaultUsageTracked.class)
+    public static UsageTracked mixin;
+
+    @Before("com.xyz.myapp.SystemArchitecture.businessService() && this(usageTracked)")
+    public void recordUsage(UsageTracked usageTracked) {
+        usageTracked.incrementUseCount();
+    }
+
+}
+```
+
+要实现的接口由被注解field类型决定。 `@DeclareParents` 注解的`value` 属性是一个 AspectJ type pattern：所有匹配类型会实现UsageTracked 接口。请注意，在上面的示例的before advice中，service beans可以直接作为`UsageTracked` 接口的实现被使用。如果以编程方式访问bean，您将编写以下内容： 
+
+```
+UsageTracked usageTracked = (UsageTracked) context.getBean("myService"); 
+```
+
+####  5.2.6. Aspect instantiation models
+
+（这是一个高级的主题，所以如果您刚开始使用AOP，您可以安全地跳过它，直到以后。） 
+
+默认情况下，在应用程序上下文中会有每个Aspect的单例实例。AspectJ称其为单例实例化模型。可以用不同的生命周期来定义各个Aspect：Spring支持AspectJ的 `perthis` and `pertarget`实例化模型（`percflow, percflowbelow,` and `pertypewithin`  目前不支持）。
+
+一个 "perthis"切面通过指定 `@Aspect` 注解里的`perthis` 语句声明。让我们看一个例子，然后我们将解释它是如何工作的。 
+
+```
+@Aspect("perthis(com.xyz.myapp.SystemArchitecture.businessService())")
+public class MyAspect {
+
+    private int someState;
+
+    @Before(com.xyz.myapp.SystemArchitecture.businessService())
+    public void recordServiceUsage() {
+        // ...
+    }
+
+}
+```
+
+'perthis' 语句的效果是：每一个唯一的service对象执行一个business service，就创建一个Aspect实例（每个唯一对象在join point绑定到 'this' ，通过切点表示匹配）。aspect 实例第一次被创建是在service对象上的一个方法被调用。当service对象超出范围时，Aspect就超出了范围。 在创建Aspect实例之前，它里面的advice都没有执行。一旦创建了Aspect实例，内部声明的advice将在匹配的连接点上执行，但只能是service对象是Aspect关联的对象才行。See the AspectJ programming guide for more information on per-clauses. 
+
+'pertarget' 实例化模型和perthis一样的方式工作，但是在匹配的连接点上为每个独特的目标对象创建一个Aspect实例。 
+
+#### 5.2.7. Example
+
+现在您已经了解了所有的组成部分是如何工作的，让我们把它们放在一起做一些有用的事情！ 
+
+由于并发问题，业务服务的执行有时会失败（例如， deadlock loser ）。如果操作被重新尝试 ，很有可能在下次的时候成功。对于业务服务，在这样的条件下进行重试是合适的（不需要返回用户解决冲突的幂等操作 ），我们希望透明地重试操作，避免客户端看到`PessimisticLockingFailureException`。这明显是个在service层切入多个service的需求，因此，通过一个aspect来实现是很理想的。
+
+因为我们想要重试操作，所以我们需要使用around advice，这样我们就可以调用多次了。 以下是基本aspect实现：
+
+```java
+@Aspect
+public class ConcurrentOperationExecutor implements Ordered {
+
+    private static final int DEFAULT_MAX_RETRIES = 2;
+
+    private int maxRetries = DEFAULT_MAX_RETRIES;
+    private int order = 1;
+
+    public void setMaxRetries(int maxRetries) {
+        this.maxRetries = maxRetries;
+    }
+
+    public int getOrder() {
+        return this.order;
+    }
+
+    public void setOrder(int order) {
+        this.order = order;
+    }
+
+    @Around("com.xyz.myapp.SystemArchitecture.businessService()")
+    public Object doConcurrentOperation(ProceedingJoinPoint pjp) throws Throwable {
+        int numAttempts = 0;
+        PessimisticLockingFailureException lockFailureException;
+        do {
+            numAttempts++;
+            try {
+                return pjp.proceed();
+            }
+            catch(PessimisticLockingFailureException ex) {
+                lockFailureException = ex;
+            }
+        } while(numAttempts <= this.maxRetries);
+        throw lockFailureException;
+    }
+
+} 
+```
+
