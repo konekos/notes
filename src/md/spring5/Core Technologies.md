@@ -7378,3 +7378,938 @@ public class ConcurrentOperationExecutor implements Ordered {
 } 
 ```
 
+改进切面，只重试幂等操作，定义 `Idempotent`注解：
+
+```
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Idempotent {
+    // marker annotation
+}
+```
+
+使用注解标注业务操作的实现。改变切面只尝试幂等操作，只需要重新定义切点表达式只匹配`@Idempotent`  ：
+
+```
+@Around("com.xyz.myapp.SystemArchitecture.businessService() && " +
+        "@annotation(com.xyz.myapp.service.Idempotent)")
+public Object doConcurrentOperation(ProceedingJoinPoint pjp) throws Throwable {
+    ...
+}
+```
+
+###  5.3. Schema-based AOP support
+
+如果你更喜欢 XML-based形式...
+
+要使用本节中描述的aop名称空间标记，需要导入`spring-aop` schema as described in [XML Schema-based configuration](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-schemas)。See [the AOP schema](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-schemas-aop) for how to import the tags in the `aop` namespace. 
+
+在你的Spring配置里，所有aspect and advisor都要在`<aop:config>` 内（一个application context可以有多个`<aop:config>`）。一个`<aop:config>`  可以包括pointcut, advisor, and aspect elements（注意必须按顺序声明）。
+
+ **`<aop:config>`  配置风格大量使用了 [auto-proxying](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-autoproxy) 机制。如果你已经使用`BeanNameAutoProxyCreator` 或类似的显示得auto-proxying，可能会导致问题（比如advice没有被织入）。推荐的使用模式要么只使用 `<aop:config>`样式，要么仅仅`AutoProxyCreator`  风格。** 
+
+#### 5.3.1. Declaring an aspect
+
+ an aspect is simply a regular Java object defined as a bean in your Spring application context.
+
+```
+<aop:config>
+    <aop:aspect id="myAspect" ref="aBean">
+        ...
+    </aop:aspect>
+</aop:config>
+
+<bean id="aBean" class="...">
+    ...
+</bean>
+```
+
+#### 5.3.2. Declaring a pointcut
+
+```
+<aop:config>
+
+    <aop:pointcut id="businessService"
+        expression="execution(* com.xyz.myapp.service.*.*(..))"/>
+
+</aop:config>
+```
+
+或者，假设你有`SystemArchitecture`  切面as described in [Sharing common pointcut definitions](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-common-pointcuts). 
+
+```
+<aop:config>
+
+    <aop:pointcut id="businessService"
+        expression="com.xyz.myapp.SystemArchitecture.businessService()"/>
+
+</aop:config>
+```
+
+```
+<aop:config>
+
+    <aop:aspect id="myAspect" ref="aBean">
+
+        <aop:pointcut id="businessService"
+            expression="execution(* com.xyz.myapp.service.*.*(..))"/>
+
+        ...
+
+    </aop:aspect>
+
+</aop:config>
+```
+
+```
+<aop:config>
+
+    <aop:aspect id="myAspect" ref="aBean">
+
+        <aop:pointcut id="businessService"
+            expression="execution(* com.xyz.myapp.service.*.*(..)) &amp;&amp; this(service)"/>
+
+        <aop:before pointcut-ref="businessService" method="monitor"/>
+
+        ...
+
+    </aop:aspect>
+
+</aop:config>
+```
+
+使用`and`, `or`, and `not` 代替`&&`, `||`, and `!` 。
+
+```
+<aop:config>
+
+    <aop:aspect id="myAspect" ref="aBean">
+
+        <aop:pointcut id="businessService"
+            expression="execution(* com.xyz.myapp.service..(..)) and this(service)"/>
+
+        <aop:before pointcut-ref="businessService" method="monitor"/>
+
+        ...
+    </aop:aspect>
+</aop:config>
+```
+
+请注意，以这种方式定义的切入点是由它们的XML id引用的，不能用作命名切入点来形成复合切入点 因此，基于约束的定义风格中命名的切入点支持比@aspectj风格所提供的更有限。 
+
+#### 5.3.3. Declaring advice
+
+#####  Before advice
+
+```
+<aop:aspect id="beforeExample" ref="aBean">
+
+    <aop:before
+        pointcut-ref="dataAccessOperation"
+        method="doAccessCheck"/>
+
+    ...
+
+</aop:aspect>
+```
+
+这里`dataAccessOperation` 是一个pointcut，定义在顶级`<aop:config>`级别。使用一个 `pointcut`  代替 `pointcut-ref`  ：
+
+```
+<aop:aspect id="beforeExample" ref="aBean">
+
+    <aop:before
+        pointcut="execution(* com.xyz.myapp.dao.*.*(..))"
+        method="doAccessCheck"/>
+
+    ...
+
+</aop:aspect>
+```
+
+正如我们在讨论@Aspectj风格时所指出的，使用命名切入点可以显著提高代码的可读性。 
+
+#####  After returning advice
+
+```
+<aop:aspect id="afterReturningExample" ref="aBean">
+
+    <aop:after-returning
+        pointcut-ref="dataAccessOperation"
+        method="doAccessCheck"/>
+
+    ...
+
+</aop:aspect>
+```
+
+```
+<aop:aspect id="afterReturningExample" ref="aBean">
+
+    <aop:after-returning
+        pointcut-ref="dataAccessOperation"
+        returning="retVal"
+        method="doAccessCheck"/>
+
+    ...
+
+</aop:aspect>
+```
+
+doAccessCheck 必须有一个叫 `retVal`的参数，和@AfterReturning限制匹配的方式相同。
+
+```
+public void doAccessCheck(Object retVal) {...
+```
+
+##### After throwing advice
+
+```
+<aop:aspect id="afterThrowingExample" ref="aBean">
+
+    <aop:after-throwing
+        pointcut-ref="dataAccessOperation"
+        method="doRecoveryActions"/>
+
+    ...
+
+</aop:aspect>
+```
+
+```
+<aop:aspect id="afterThrowingExample" ref="aBean">
+
+    <aop:after-throwing
+        pointcut-ref="dataAccessOperation"
+        throwing="dataAccessEx"
+        method="doRecoveryActions"/>
+
+    ...
+
+</aop:aspect>
+```
+
+```
+public void doRecoveryActions(DataAccessException dataAccessEx) {...
+```
+
+##### Around advice
+
+最后一种建议是关于建议的。围绕建议运行“围绕”匹配的方法执行。
+
+```
+<aop:aspect id="aroundExample" ref="aBean">
+
+    <aop:around
+        pointcut-ref="businessService"
+        method="doBasicProfiling"/>
+
+    ...
+
+</aop:aspect>
+```
+
+`doBasicProfiling`  实现和@AspectJ例子一样。
+
+```
+public Object doBasicProfiling(ProceedingJoinPoint pjp) throws Throwable {
+    // start stopwatch
+    Object retVal = pjp.proceed();
+    // stop stopwatch
+    return retVal;
+}
+```
+
+##### Advice parameters
+
+. See [Advice parameters](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-ataspectj-advice-params) for details. 如果你想要显式地为建议方法指定参数名 ， using the `arg-names` attribute of the advice element ，和as described in [Determining argument names](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-ataspectj-advice-params-names) 一样。
+
+```
+<aop:before
+    pointcut="com.xyz.lib.Pointcuts.anyPublicMethod() and @annotation(auditable)"
+    method="audit"
+    arg-names="auditable"/>
+```
+
+下面是一个稍微复杂一点的xsd的方法的例子，演示了一些与大量强类型参数一起使用的advice。
+
+```
+package x.y.service;
+
+public interface FooService {
+
+    Foo getFoo(String fooName, int age);
+}
+
+public class DefaultFooService implements FooService {
+
+    public Foo getFoo(String name, int age) {
+        return new Foo(name, age);
+    }
+}
+```
+
+下一个是aspect。注意 `profile(..)` 方法接受很多强类型参数，
+
+```
+package x.y;
+
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.springframework.util.StopWatch;
+
+public class SimpleProfiler {
+
+    public Object profile(ProceedingJoinPoint call, String name, int age) throws Throwable {
+        StopWatch clock = new StopWatch("Profiling for '" + name + "' and '" + age + "'");
+        try {
+            clock.start(call.toShortString());
+            return call.proceed();
+        } finally {
+            clock.stop();
+            System.out.println(clock.prettyPrint());
+        }
+    }
+}
+```
+
+最后，这里是为特定连接点执行上述建议所需的XML配置： 
+
+```xml
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:aop="http://www.springframework.org/schema/aop"
+    xsi:schemaLocation="
+        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd">
+
+    <!-- this is the object that will be proxied by Spring's AOP infrastructure -->
+    <bean id="fooService" class="x.y.service.DefaultFooService"/>
+
+    <!-- this is the actual advice itself -->
+    <bean id="profiler" class="x.y.SimpleProfiler"/>
+
+    <aop:config>
+        <aop:aspect ref="profiler">
+
+            <aop:pointcut id="theExecutionOfSomeFooServiceMethod"
+                expression="execution(* x.y.service.FooService.getFoo(String,int))
+                and args(name, age)"/>
+
+            <aop:around pointcut-ref="theExecutionOfSomeFooServiceMethod"
+                method="profile"/>
+
+        </aop:aspect>
+    </aop:config>
+
+</beans>
+```
+
+如果我们有下面的驱动脚本，我们会在标准输出中得到这样的输出： 
+
+```
+import org.springframework.beans.factory.BeanFactory;
+import org.springframework.context.support.ClassPathXmlApplicationContext;
+import x.y.service.FooService;
+
+public final class Boot {
+
+    public static void main(final String[] args) throws Exception {
+        BeanFactory ctx = new ClassPathXmlApplicationContext("x/y/plain.xml");
+        FooService foo = (FooService) ctx.getBean("fooService");
+        foo.getFoo("Pengo", 12);
+    }
+}
+```
+
+```
+StopWatch 'Profiling for 'Pengo' and '12'': running time (millis) = 0
+-----------------------------------------
+ms     %     Task name
+-----------------------------------------
+00000  ?  execution(getFoo)
+```
+
+#####  Advice ordering
+
+as described in [Advice ordering](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-ataspectj-advice-ordering) 。 `Order`  注解或者实现 `Order`  接口。
+
+#### 5.3.4. Introductions
+
+介绍（在AspectJ中称为内部类型声明）使一个方面能够声明建议的对象实现给定的接口，并代表这些对象提供该接口的实现。 
+
+使用`aop:declare-parents` element inside an `aop:aspect` 。这个元素用于声明匹配类型有一个新的父类（因此得名） 。
+
+```
+<aop:aspect id="usageTrackerAspect" ref="usageTracking">
+
+    <aop:declare-parents
+        types-matching="com.xzy.myapp.service.*+"
+        implement-interface="com.xyz.myapp.service.tracking.UsageTracked"
+        default-impl="com.xyz.myapp.service.tracking.DefaultUsageTracked"/>
+
+    <aop:before
+        pointcut="com.xyz.myapp.SystemArchitecture.businessService()
+            and this(usageTracked)"
+            method="recordUsage"/>
+
+</aop:aspect>
+```
+
+```
+public void recordUsage(UsageTracked usageTracked) {
+    usageTracked.incrementUseCount();
+}
+```
+
+service beans是`UsageTracked` 实现。 
+
+```
+UsageTracked usageTracked = (UsageTracked) context.getBean("myService");
+```
+
+####  5.3.5. Aspect instantiation models
+
+xml只支持singleton model 。其他将来可能实现。
+
+####  5.3.6. Advisors
+
+ "advisors"的概念是从Spring中定义的AOP支持中提出的，在AspectJ中没有直接的等价。一个advisor像一个 self-contained的 aspect 有一条advice。advice本身是bean的形式，必须实现advice接口之一 described in [Advice types in Spring](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-api-advice-types)。不过，advisor可以利用AspectJ切入点表达式。 
+
+Spring支持advisor使用`<aop:advisor>`  ，您通常会看到它与事务advice一起使用 ，它在Spring中也有自己的名称空间支持。
+
+```
+<aop:config>
+
+    <aop:pointcut id="businessService"
+        expression="execution(* com.xyz.myapp.service.*.*(..))"/>
+
+    <aop:advisor
+        pointcut-ref="businessService"
+        advice-ref="tx-advice"/>
+
+</aop:config>
+
+<tx:advice id="tx-advice">
+    <tx:attributes>
+        <tx:method name="*" propagation="REQUIRED"/>
+    </tx:attributes>
+</tx:advice>
+```
+
+为了定义advisor的优先级，以便advice可以参与排序，使用order属性来定义advisor的有序值。 
+
+#### 5.3.7. Example
+
+上面例子的XML配置：
+
+```
+public class ConcurrentOperationExecutor implements Ordered {
+
+    private static final int DEFAULT_MAX_RETRIES = 2;
+
+    private int maxRetries = DEFAULT_MAX_RETRIES;
+    private int order = 1;
+
+    public void setMaxRetries(int maxRetries) {
+        this.maxRetries = maxRetries;
+    }
+
+    public int getOrder() {
+        return this.order;
+    }
+
+    public void setOrder(int order) {
+        this.order = order;
+    }
+
+    public Object doConcurrentOperation(ProceedingJoinPoint pjp) throws Throwable {
+        int numAttempts = 0;
+        PessimisticLockingFailureException lockFailureException;
+        do {
+            numAttempts++;
+            try {
+                return pjp.proceed();
+            }
+            catch(PessimisticLockingFailureException ex) {
+                lockFailureException = ex;
+            }
+        } while(numAttempts <= this.maxRetries);
+        throw lockFailureException;
+    }
+
+}
+```
+
+```
+<aop:config>
+
+    <aop:aspect id="concurrentOperationRetry" ref="concurrentOperationExecutor">
+
+        <aop:pointcut id="idempotentOperation"
+            expression="execution(* com.xyz.myapp.service.*.*(..))"/>
+
+        <aop:around
+            pointcut-ref="idempotentOperation"
+            method="doConcurrentOperation"/>
+
+    </aop:aspect>
+
+</aop:config>
+
+<bean id="concurrentOperationExecutor"
+    class="com.xyz.myapp.service.impl.ConcurrentOperationExecutor">
+        <property name="maxRetries" value="3"/>
+        <property name="order" value="100"/>
+</bean>
+```
+
+```
+@Retention(RetentionPolicy.RUNTIME)
+public @interface Idempotent {
+    // marker annotation
+}
+```
+
+```
+<aop:pointcut id="idempotentOperation"
+        expression="execution(* com.xyz.myapp.service.*.*(..)) and
+        @annotation(com.xyz.myapp.service.Idempotent)"/>
+```
+
+### 5.4. Choosing which AOP declaration style to use
+
+取决于application requirements, development tools, and team familiarity with AOP 。
+
+####  5.4.1. Spring AOP or full AspectJ?
+
+Use the simplest thing that can work。如果您只需要建议在Spring bean上执行操作，那么Spring AOP是正确的选择。 Spring AOP比full AspectJ更简单，不需要引入AspectJ compiler / weaver into your development and build processes。如果你只需要，advise the execution of operations on Spring beans ，Spring AOP就是正确选择。如果您需要建议未由Spring容器管理的对象（特别是比如domain object） ，那么你需要使用AspectJ。如果你需要advise join point而不是简单方法执行（例如，field get or set join points 等等），也需要AspectJ。
+
+当使用AspectJ，你将选择使用 AspectJ language syntax 或 @AspectJ annotation style 。如果没用java 5+，不能用注解。如果Aspect在你的设计中起了很大的作用，能使用[AspectJ Development Tools (AJDT)](https://www.eclipse.org/ajdt/) plugin ，AspectJ language syntax 更好一些：它更简洁，更简单，因为语言是为写Aspect而设计的 。只有少数几个方面在您的应用程序中没有发挥主要作用，consider using the @AspectJ style ，在您的IDE中坚持常规的Java编译，并在构建脚本中添加一个方面编织阶段。 
+
+####  5.4.2. @AspectJ or XML for Spring AOP?
+
+有一些权衡：
+
+xml对Spring用户最熟悉，当使用AOP作为配置企业服务的工具时，XML是一个不错的选择（一个好的测试是您是否认为切入点表达式是您的配置的一部分，您可能希望独立地进行更改 ）。有了XML风格，从您的配置中可以清楚地看到系统中存在哪些Aspect。  
+
+XML样式有两个缺点。首先，它不能完全将处理的需求的实现封装在一个地方。DRY原则认为应该有一个单一的，明确的，权威的对系统中任何知识的表示。当使用the XML style，对如何需求被实现的认识通过支持bean类的声明和xml中的配置被分割。当使用@AspectJ style 有一个single module—— the aspect ——在这里信息被封装了。其次，XML样式比@Aspectj风格稍微限制了一些 ：只支持"singleton" 切面实例化模型，不能结合声明在xml的named pointcuts 。例如： @AspectJ style you can write something like: 
+
+```
+@Pointcut(execution(* get*()))
+public void propertyAccess() {}
+
+@Pointcut(execution(org.xyz.Account+ *(..))
+public void operationReturningAnAccount() {}
+
+@Pointcut(propertyAccess() && operationReturningAnAccount())
+public void accountPropertyAccess() {}
+```
+
+```
+<aop:pointcut id="propertyAccess"
+        expression="execution(* get*())"/>
+
+<aop:pointcut id="operationReturningAnAccount"
+        expression="execution(org.xyz.Account+ *(..))"/>
+```
+
+xml不能定义`accountPropertyAccess`  通过结合两个。
+
+@Aspectj风格支持额外的实例化模型，and  richer pointcut composition 。它的优点是将方面保持为一个模块化单元。 它还有一个优点，即@AspectJ切面可以被Spring AOP和AspectJ理解（从而被消耗）——因此，如果您稍后决定需要AspectJ的功能来实现额外的需求，那么很容易迁移到基于AspectJ的方法 。总的来说，当您拥有的Aspect不仅仅是简单的企业服务“配置”时，Spring团队更喜欢@Aspectj风格。 
+
+### 5.5. Mixing aspect types
+
+使用相同的底层支持机制。
+
+### 5.6. Proxying mechanisms
+
+Spring AOP使用JDK动态代理或CGLIB来为给定的目标对象创建代理（当你有选择的时候，JDK动态代理是首选的 ）。 
+
+如果要被proxied的目标对象实现至少一个接口，那么就会使用JDK动态代理。目标类型实现的所有接口都将被代理。如果目标对象没有实现任何接口，那么就会创建CGLIB代理。 
+
+如果你想强制使用CGLIB代理（例如，要代理为目标对象定义的每个方法，而不仅仅是由其接口实现 ），你也可以这么做。然而，有一些问题需要考虑： 
+
+- `final` 方法不能被advised，因为不可覆盖。
+- 自Spring 3.2，不需要加 CGLIB到classpath，因为CGLIB类被重新打包到org.springframework  并且直接包含在spring-core JAR。这意味着CGLIB-based代理支持 “就像” JDK dynamic proxies的方式一样工作。
+- 自Spring 4.0，你的代理对象的构造函数将不再被调用两次，因为CGLIB代理实例将通过Objenesis创建。只有当您的JVM不允许constructor bypassing ，您可能会在Spring的AOP支持中看到双重调用和相应的调试日志条目。 
+
+强制使用CGLIB代理 ：
+
+```
+<aop:config proxy-target-class="true">
+    <!-- other beans defined here... -->
+</aop:config>
+```
+
+当使用 @AspectJ autoproxy support，强制CGLIB代理：
+
+```
+<aop:aspectj-autoproxy proxy-target-class="true"/>
+```
+
+**多个`<aop:config/>` 部分会在运行时合并成一个统一的auto-proxy creator ，应用了最强的代理设置。也适用于 `<tx:annotation-driven/>` and `<aop:aspectj-autoproxy/>`。**
+
+**要明确：使用`proxy-target-class="true"`  在 `<tx:annotation-driven/>`, `<aop:aspectj-autoproxy/>` or `<aop:config/>` 会强制它们所有都用CGLIB。**
+
+#### 5.6.1. Understanding AOP proxies
+
+Spring AOP是*proxy-based*。在您编写自己的aspect或使用Spring框架提供的任何Spring基于aop的aspect之前，您必须掌握最后声明的含义，这是非常重要的。 
+
+考虑第一个情况，你有一个plain-vanilla, un-proxied, nothing-special-about-it, straight object reference ，如下代码片段所示。 
+
+```
+public class SimplePojo implements Pojo {
+
+    public void foo() {
+        // this next method invocation is a direct call on the 'this' reference
+        this.bar();
+    }
+
+    public void bar() {
+        // some logic...
+    }
+}
+```
+
+如果你在对象引用上调用一个方法，该方法直接在该对象引用上调用，如下所示：
+
+![](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/images/aop-proxy-plain-pojo-call.png)
+
+```
+public class Main {
+
+    public static void main(String[] args) {
+
+        Pojo pojo = new SimplePojo();
+
+        // this is a direct method call on the 'pojo' reference
+        pojo.foo();
+    }
+}
+```
+
+当客户端代码的引用是一个代理时，事情会发生轻微的变化。考虑下面的图表和代码片段。 
+
+![](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/images/aop-proxy-call.png)
+
+```
+public class Main {
+
+    public static void main(String[] args) {
+
+        ProxyFactory factory = new ProxyFactory(new SimplePojo());
+        factory.addInterface(Pojo.class);
+        factory.addAdvice(new RetryAdvice());
+
+        Pojo pojo = (Pojo) factory.getProxy();
+
+        // this is a method call on the proxy!
+        pojo.foo();
+    }
+}
+```
+
+理解这里的关键是`Main` 类里的`main(..)` 里的客户端代码有对代理的引用。这意味着对该对象引用的方法调用将会在代理上调用，因此代理能够委托给所有的和特定方法调用相关的拦截器（advice）。然而，一旦调用最终到达目标对象，在这个例子的 `SimplePojo` ，任何在他自己的方法调用，比如`this.bar()` or `this.foo()` ，将会在*this*引用上去调用，而不是代理上。这有重要意义。这意味着自我调用不会导致与advice相关联的方法调用获得执行的机会。 
+
+好了，那么我们该怎么做呢？ 最好的方法（最好一词在这用的很宽松）是重构您的代码，使自我调用不会发生。当然，这确实需要你做一些工作，但这是最好的，最小侵入性的方法。 下一种方法绝对是可怕的，我几乎不愿意指出它，因为它太可怕了。 您可以（窒息！）完全将您的类中的逻辑与Spring AOP结合在一起： 
+
+```
+public class SimplePojo implements Pojo {
+
+    public void foo() {
+        // this works, but... gah!
+        ((Pojo) AopContext.currentProxy()).bar();
+    }
+
+    public void bar() {
+        // some logic...
+    }
+}
+```
+
+这完全将您的代码与Spring AOP结合在一起，这使得类本身意识到它正被用于AOP上下文中，它在AOP的表面上运行。 它还需要在创建代理时进行一些额外的配置： 
+
+```
+public class Main {
+
+    public static void main(String[] args) {
+
+        ProxyFactory factory = new ProxyFactory(new SimplePojo());
+        factory.adddInterface(Pojo.class);
+        factory.addAdvice(new RetryAdvice());
+        factory.setExposeProxy(true);
+
+        Pojo pojo = (Pojo) factory.getProxy();
+
+        // this is a method call on the proxy!
+        pojo.foo();
+    }
+}
+```
+
+最后，必须指出的是，AspectJ没有这种自我调用问题，因为它不是基于代理的AOP框架。 
+
+### 5.7. Programmatic creation of @AspectJ Proxies
+
+除了在配置中使用`<aop:config>` or `<aop:aspectj-autoproxy>` 声明aspect，也可以编程式创建advise对象的代理。有关Spring AOP API的全部细节，请参阅下一章。 在这里，我们想要关注的是使用@Aspectj切面自动创建代理的能力。 
+
+`org.springframework.aop.aspectj.annotation.AspectJProxyFactory` 类可以为被一个或多个@AspectJ aspects advise的目标对象创建代理。这个类的基本用法非常简单，如下所示。请参阅javadocs以获得完整的信息。 
+
+```
+// create a factory that can generate a proxy for the given target object
+AspectJProxyFactory factory = new AspectJProxyFactory(targetObject);
+
+// add an aspect, the class must be an @AspectJ aspect
+// you can call this as many times as you need with different aspects
+factory.addAspect(SecurityManager.class);
+
+// you can also add existing aspect instances, the type of the object supplied must be an @AspectJ aspect
+factory.addAspect(usageTracker);
+
+// now get the proxy object...
+MyInterfaceType proxy = factory.getProxy();
+```
+
+###  5.8. Using AspectJ with Spring applications
+
+这一章中至今我们讨论的所有内容都是纯Spring AOP。在本节中，我们将讨论如何使用AspectJ编译器/weaver替代AOP，或者是作为额外。如果您的需求超出了Spring AOP提供的功能。 
+
+Spring附带一个小的AspectJ切面库，在你的发行版中，它是独立于spring的。为了使用其中的各个方面，您需要将其添加到类路径中。  [Using AspectJ to dependency inject domain objects with Spring](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-atconfigurable) and [Other Spring aspects for AspectJ](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-ajlib-other)  讨论这个库的内容以及如何使用它 。 [Configuring AspectJ aspects using Spring IoC](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-configure)  讨论了如何依赖注入使用AspectJ compiler编织的 AspectJ aspect。最后，[Load-time weaving with AspectJ in the Spring Framework](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-ltw) 提供了使用AspectJ的Spring应用程序加载时编织的介绍。 
+
+####  5.8.1. Using AspectJ to dependency inject domain objects with Spring
+
+Spring容器实例化和配置在应用程序上下文中定义的bean。也可以要求bean工厂配置一个预先存在的对象，对象被给出了bean定义的name包含要使用的配置。`spring-aspects.jar`  包含一个annotation-driven aspect，利用这种能力来允许*任何对象*的依赖性注入。支持的目的是用于在任何容器的控制之外创建的对象。domain对象通常属于这一类，因为它们通常是使用new操作符以编程方式创建，或者由一个ORM工具作为数据库查询的结果。 
+
+ `@Configurable`注解将一个类标记为对Spring-driven configuration 是合格的。在最简单的情况下，它可以这样注解： 
+
+```
+package com.xyz.myapp.domain;
+
+import org.springframework.beans.factory.annotation.Configurable;
+
+@Configurable
+public class Account {
+    // ...
+}
+```
+
+当以这种方式作为标记接口时，Spring将配置带注释类型的新实例 （Account），使用与完全限定类名（`com.xyz.myapp.domain.Account`）相同的name的 bean定义（通常是prototype-scoped ）。因为bean的默认名称是其类型的完全限定名称，声明prototype定义的一种方便的方法是简单地忽略`id`属性： 
+
+```
+<bean class="com.xyz.myapp.domain.Account" scope="prototype">
+    <property name="fundsTransferService" ref="fundsTransferService"/>
+</bean>
+```
+
+如果您想显式地指定要使用的prototype  bean定义的名称，你可以直接在注释中这样做： 
+
+```
+package com.xyz.myapp.domain;
+
+import org.springframework.beans.factory.annotation.Configurable;
+
+@Configurable("account")
+public class Account {
+    // ...
+}
+```
+
+Spring现在将寻找一个名为“account”的bean定义，并将其用作配置新`Account` 实例的定义。 
+
+您还可以使用自动连接来避免必须指定专门的bean定义。 要让Spring应用自动装配，使用 `@Configurable` 注解的`autowire`  属性：指定 `@Configurable(autowire=Autowire.BY_TYPE)` 或者`@Configurable(autowire=Autowire.BY_NAME`  分别通过类型和name。作为替代方案，自从Spring 2.5，最好对于 `@Configurable ` beans 指定显式，注解驱动的依赖注入，使用 `@Autowired` or `@Inject`  在field或方法级别上（see [Annotation-based container configuration](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-annotation-config) for further details ）。
+
+最后你可以用`dependencyCheck` 属性，在新创建和配置的对象上检查对象引用（例如：`@Configurable(autowire=Autowire.BY_NAME,dependencyCheck=true)` ）。如果这个属性被set true，Spring将在配置之后验证所有已经设置好了的属性（不是原语或集合）。 
+
+当然，使用注释在其本身并没有什么作用。 是在`spring-aspects.jar`  的`AnnotationBeanConfigurerAspect`  对注解起作用。aspect 本质上说，“从一个带有 `@Configurable`的新对象的初始化返回后，根据注释的属性配置新的Spring创建的对象 “。在这种context中，初始化指的是新实例化的对象（例如，用new操作符实例化的对象），以及正在反序列化的`Serializable` 对象（例如，通过 [readResolve()](https://docs.oracle.com/javase/6/docs/api/java/io/Serializable.html)）。 
+
+**上面一段的关键词是“本质上”。 在大多数情况下，“从一个新对象的初始化返回之后”的确切语义将会很好...在这种情况下，“初始化”意味着在对象被构造之后将注入依赖项 ——这意味着依赖关系将无法在类的构造函数体中使用。 如果你想要在构造函数执行之前注入依赖项，因此可以在构造函数的主体中使用 ，然后你需要在`@Configurable` 声明上定义`@Configurable(preConstruction=true)`**
+
+**You can find out more information about the language semantics of the various pointcut types in AspectJ [in this appendix](https://www.eclipse.org/aspectj/doc/next/progguide/semantics-joinPoints.html) of the [AspectJ Programming Guide](https://www.eclipse.org/aspectj/doc/next/progguide/index.html).** 
+
+为了使其工作，带注释的类型必须与AspectJ weaver一起编织 ——你可以使用构建时Ant或Maven任务来完成这项工作 （see for example the [AspectJ Development Environment Guide](https://www.eclipse.org/aspectj/doc/released/devguide/antTasks.html) ）或使用load-time weaving （see [Load-time weaving with AspectJ in the Spring Framework](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-ltw) ）。`AnnotationBeanConfigurerAspect` 本身需要由Spring配置（为了获得用于配置新对象的bean factory的引用）。如果您使用的是基于Java的配置 ：
+
+```
+@Configuration
+@EnableSpringConfigured
+public class AppConfig {
+
+}
+```
+
+如果xml，Spring context定义了 [`context` namespace](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-schemas-context) 名称空间：
+
+```
+<context:spring-configured/>
+```
+
+`@Configurable` 对象的实例在aspect被配置之前被创建，结果是消息发送到调试日志，并且没有对象的配置发生。一个例子可能是Spring配置中的bean，它在Spring初始化时创建domain对象 。在这种情况你可以用"depends-on" bean attribute 手动指定bean依赖于aspect配置。
+
+```
+<bean id="myService"
+        class="com.xzy.myapp.service.MyService"
+        depends-on="org.springframework.beans.factory.aspectj.AnnotationBeanConfigurerAspect">
+
+    <!-- ... -->
+
+</bean>
+```
+
+不要通过bean configurer aspect 激活`@Configurable` 除非你真的想在运行时依赖它的语义 。特别是，确保不要在常规容器里的beans的类上添加`@Configurable` ：否则，你会得到双重初始化，一次通过容器，一次通过aspect。 
+
+##### Unit testing @Configurable objects
+
+ `@Configurable` 支持的一个目的是没有与硬编码查找相关的困难，domain objects的独立单元测试。如果 `@Configurable` 类型没有被AspectJ 织入，在单元测试期间，注释没有效果。你可以简单地在测试对象中设置mock or stub property属性引用，然后正常进行。如果`@Configurable` 被AspectJ 织入，你也可以在容器外正常 unit test ，但是你会每次构建`@Configurable`  对象时看到warning信息表明它还没有被Spring配置。 
+
+##### Working with multiple application contexts
+
+`AnnotationBeanConfigurerAspect`  用于实现 `@Configurable`  支持，是 一个单例AspectJ  aspect。singleton aspect 的scope和 `static`  成员的scope相同，也就是说，每个类加载器都有一个aspect实例，它定义了类型。 这意味着，如果您在同一个类加载器层次结构中定义多个应用程序上下文，您需要考虑在何处定义 `@EnableSpringConfigured` bean以及何处放置 `spring-aspects.jar` 到classpath。 
+
+考虑一个典型的Spring web应用程序配置，它具有一个共享的parent应用程序上下文，定义公共业务服务和支持它们所需的一切 ，每个servlet的一个子应用程序上下文包含特定于该servlet的定义。所有这些上下文都将在相同的类加载器层次结构中共存， `AnnotationBeanConfigurerAspect` 只能引用其中一个。这种情况我们建议`@EnableSpringConfigured`定义在shared (parent) application context ：这可能定义了您希望将其注入领域对象的service。结果是您不能用对在子（servlet特定）上下文中定义的bean的引用来配置领域对象 ，通过使用@Configurable机制（可能不是你想要做的事 ）。
+
+在同一个容器中部署多个web应用程序时，保证每个web应用使用它自己的类加载器加载`spring-aspects.jar`  里的types（例如，by placing `spring-aspects.jar` in `'WEB-INF/lib'` ）。如果`pring-aspects.jar` 只被添加到容器范围classpath（因此被父容器加载），所有的web应用程序都将共享同一个切面实例，这可能不是您想要的。
+
+####  5.8.2. Other Spring aspects for AspectJ
+
+除了 `@Configurable`  切面，`spring-aspects.jar` 包含了一个AspectJ aspect ，对 `@Transactional`  注解的类型或方法驱动Spring’s transaction management 。这主要是为那些希望在Spring容器之外使用Spring框架的事务支持的用户准备的。 
+
+解释 `@Transactional` 注解的aspect是`AnnotationTransactionAspect`。当使用这个方面时，您必须注解实现类（和/或该类内的方法），而不是该类实现的接口（如果有的话）。 AspectJ遵循Java的规则，即接口上的注解不是继承的。 
+
+一个类上的`@Transactional`注解指定了该类中任何public操作的执行的默认事务语义。 
+
+一个方法上的`@Transactional` 覆盖类给出的默认事务语义 。任何可见性的方法都可以被注解，包括私有方法。 直接注释非public方法是获取这些方法执行的事务界定的唯一方法。
+
+自Spring 4.2，`spring-aspects`  提供了一个类似的aspect，提供了和 `javax.transaction.Transactional` 一样的特性。更多信息查看 `JtaAnnotationTransactionAspect`  。
+
+对于AspectJ 编程者，想使用Spring配置和事务管理支持，但不想（或不能）使用注解，`spring-aspects.jar`  也包含 `abstract` aspects，你可以扩展他提供自己的pointcut定义。看`AbstractBeanConfigurerAspect` and `AbstractTransactionAspect`  aspects 更多信息。作为一个例子，下面的摘录展示了如何编写一个方面来配置在领域模型中定义的所有对象实例，使用与完全限定类名匹配的原型bean定义： 
+
+```
+public aspect DomainObjectConfiguration extends AbstractBeanConfigurerAspect {
+
+    public DomainObjectConfiguration() {
+        setBeanWiringInfoResolver(new ClassNameBeanWiringInfoResolver());
+    }
+
+    // the creation of a new bean (any object in the domain model)
+    protected pointcut beanCreation(Object beanInstance) :
+        initialization(new(..)) &&
+        SystemArchitecture.inDomainModel() &&
+        this(beanInstance);
+
+}
+```
+
+#### 5.8.3. Configuring AspectJ aspects using Spring IoC
+
+当Spring应用使用AspectJ aspects ，使用Spring来配置这些方面是很自然的事情。 AspectJ运行时本身负责aspect的创建， 通过Spring来配置AspectJ创建方面的方法依赖于由aspect使用的AspectJ实例化模型（the `per-xxx` clause ）。
+
+大多数AspectJ切面是单例切面的。这些方面的配置非常简单： 简单地创建一个引用aspect类型的bean定义，包含bean属性'factory-method="aspectOf"' 。这确保了Spring通过询问AspectJ而不是试图创建实例本身来获得方面实例。 例如：
+
+```
+<bean id="profiler" class="com.xyz.profiler.Profiler"
+        factory-method="aspectOf">
+
+    <property name="profilingStrategy" ref="jamonProfilingStrategy"/>
+</bean>
+```
+
+Non-singleton aspects 更难配置：然而这是可能的，通过创建prototype bean定义，使用来自`spring-aspects.jar`  的`@Configurable`  支持，来配置切面实例，只要他们在AspectJ runtime 被创建。
+
+如果你有些 @AspectJ aspects 想用 AspectJ  编织（例如，为domain模型类型使用加载时编织 ）并且其他@AspectJ aspects 你想通过Spring AOP使用，这些aspects都用Spring配置，那么你需要告诉Spring AOP @AspectJ autoproxying support  哪个配置里定义的@AspectJ aspects  的子集应该被用于autoproxying 。你可以使用一个或多个`<include/>`  在 `<aop:aspectj-autoproxy/>`  声明内。每个 `<include/>` 指定一个name pattern，只有具有至少一种模式匹配的名称的bean才会用于Spring AOP autoproxy 配置： 
+
+```
+<aop:aspectj-autoproxy>
+    <aop:include name="thisBean"/>
+    <aop:include name="thatBean"/>
+</aop:aspectj-autoproxy>
+```
+
+不要被`<aop:aspectj-autoproxy/>` 误导：用这个导致Spring AOP代理的创建 。@AspectJ style of aspect declaration 只是在这里用， AspectJ  runtime不涉及。
+
+#### 5.8.4. Load-time weaving with AspectJ in the Spring Framework
+
+Load-time weaving (LTW) 指的是把AspectJ aspects 织入到应用class文件中，当它们被加载到Java virtual machine (JVM) 的时候的一个过程。本节的重点是在Spring框架的特定上下文中配置和使用LTW： 不过，本节并不是对LTW的介绍。 关于LTW的详细信息，并使用AspectJ配置LTW （Spring没涉及），see the [LTW section of the AspectJ Development Environment Guide](https://www.eclipse.org/aspectj/doc/released/devguide/ltw.html). 
+
+Spring框架给AspectJ LTW带来的增值是对编织过程的更细粒度的控制。  'Vanilla' AspectJ LTW 使用Java (5+)  代理实现的，在启动JVM时，通过指定VM参数来打开它。因此，它是一个jvm范围的设置， 但通常有点太粗糙了。支持spring的LTW使您能够在每个类加载器的基础上切换LTW，很明显，它更细粒度，在“单jvm多应用程序”环境中更有意义 （例如在典型的应用程序服务器环境中发现的 ）。
+
+另外，在 [in certain environments](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-ltw-environments) ，这种支持支持加载时编织，而不需要对应用服务器的启动脚本进行任何修改，这将需要添加 `-javaagent:path/to/aspectjweaver.jar`  或`-javaagent:path/to/org.springframework.instrument-{version}.jar` （以前叫spring-agent.jar ）。开发人员只需修改一个或多个构成应用程序上下文的文件，以支持加载时编织，而不是依赖于通常负责部署配置的管理员，比如启动脚本。 
+
+既然sales pitch完了，让我们先来看看使用Spring的AspectJ LTW的一个简单示例，接下来的示例中介绍了关于元素的详细细节。对于一个完整的示例，请参阅 [Petclinic sample application](https://github.com/spring-projects/spring-petclinic) 。
+
+#####  A first example
+
+让我们假设您是一个应用程序开发人员，他的任务是诊断系统中某些性能问题的原因。 不是打开一个分析工具，我们要做的是切换一个简单的剖析aspect，这将使我们能够快速获得一些性能指标 ，这样我们就可以在之后立即应用一个更细粒度的分析工具到那个特定的区域。 
+
+这里展示的示例使用XML样式配置，也可以用 @AspectJ with [Java Configuration](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-java) 配置。特别是`@EnableLoadTimeWeaving` 注解可以用来代替`<context:load-time-weaver/>` (see [below](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-ltw-spring) for details)。
+
+这是性能分析切面。没有什么太花哨，只是一个quick-and-dirty 基于时间的分析器使用 @AspectJ-style 声明：
+
+```
+package foo;
+
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.Aspect;
+import org.aspectj.lang.annotation.Around;
+import org.aspectj.lang.annotation.Pointcut;
+import org.springframework.util.StopWatch;
+import org.springframework.core.annotation.Order;
+
+@Aspect
+public class ProfilingAspect {
+
+    @Around("methodsToBeProfiled()")
+    public Object profile(ProceedingJoinPoint pjp) throws Throwable {
+        StopWatch sw = new StopWatch(getClass().getSimpleName());
+        try {
+            sw.start(pjp.getSignature().getName());
+            return pjp.proceed();
+        } finally {
+            sw.stop();
+            System.out.println(sw.prettyPrint());
+        }
+    }
+
+    @Pointcut("execution(public * foo..*.*(..))")
+    public void methodsToBeProfiled(){}
+}
+```
+
+我们也需要创建 `META-INF/aop.xml` ，为了通知AspectJ weaver我们想要将我们的剖析aspect编织进我们的类中。 文件约定是标准AspectJ约定。
+
+```
+<!DOCTYPE aspectj PUBLIC "-//AspectJ//DTD//EN" "http://www.eclipse.org/aspectj/dtd/aspectj.dtd">
+<aspectj>
+
+    <weaver>
+        <!-- only weave classes in our application-specific packages -->
+        <include within="foo.*"/>
+    </weaver>
+
+    <aspects>
+        <!-- weave in just this aspect -->
+        <aspect name="foo.ProfilingAspect"/>
+    </aspects>
+
+</aspectj>
+```
+
+现在到了Spring-特定配置的部分。我们需要配置一个`LoadTimeWeaver` （后面会解释，现在相信即可）。这个 load-time weaver 是基本组件，负责织入一个或多个`META-INF/aop.xml`  文件里的aspect 配置 ，好处是它不需要太多的配置， 如下所示（还有一些您可以指定的选项，但是这些选项稍后会详细介绍 ）：
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:context="http://www.springframework.org/schema/context"
+    xsi:schemaLocation="
+        http://www.springframework.org/schema/beans
+        http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.springframework.org/schema/context
+        http://www.springframework.org/schema/context/spring-context.xsd">
+
+    <!-- a service object; we will be profiling its methods -->
+    <bean id="entitlementCalculationService"
+            class="foo.StubEntitlementCalculationService"/>
+
+    <!-- this switches on the load-time weaving -->
+    <context:load-time-weaver/>
+</beans>
+```
+
