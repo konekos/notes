@@ -9025,3 +9025,480 @@ public class LockMixinAdvisor extends DefaultIntroductionAdvisor {
 
 一些关键属性继承于`org.springframework.aop.framework.ProxyConfig`  （spring里一切AOP代理工厂的superclass）。这些关键属性包括：
 
+- `proxyTargetClass`: 如果目标类要被代理是true，而不是目标类的接口。如果属性被设置为true， CGLIB 代理会被创建（but see also [JDK- and CGLIB-based proxies](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-pfb-proxy-types) ）
+- `optimize`:  控制是否把aggressive optimizations apply到CGLIB创建的代理。不应该轻率地使用这种设置，除非您完全理解相关AOP代理如何处理优化 。目前仅用于CGLIB代理;它对JDK动态代理没有影响。 
+- `frozen`:  如果一个proxy设置是forzen，然后对配置的更改不再被允许 。这是一个小优化，如果你不想在代理被创建后调用者操纵代理（通过 `Advised` 接口）。默认值是false，所以比如添加额外advice的变化是允许的。
+- `exposeProxy`: 决定是否把当前代理暴露在 `ThreadLocal`以致target可以访问到。如果target需要得到代理并且`exposeProxy` 属性被设置为true，target可以使用`AopContext.currentProxy()` 方法。
+
+其他特定于 `ProxyFactoryBean` 的属性包括：
+
+- `proxyInterfaces`:  接口名字的String的数组。如果没被提供，目标类的CGLIB代理将被使用（but see also [JDK- and CGLIB-based proxies](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-pfb-proxy-types) ）。
+- `interceptorNames`: `Advisor`, 拦截器和其他advice的name的String数组。顺序很重要，以先到先得的原则。 *：*也就是说，列表中的第一个拦截器将是第一个能够拦截调用的拦截器。 
+
+这些名称是当前工厂的bean名称，包括来自祖先工厂的bean名称。您不能在这里提到bean引用，因为这样做会导致ProxyFactoryBean忽略建议的单例设置。 
+
+你可以对一个拦截器名字追加星号（*）。这导致应用里所有以星号前面部分开头的advisor beans被应用。使用这个特性的一个例子： [Using 'global' advisors](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-global-advisors). 
+
+- singleton: 是否工厂应该返回一个single对象，不管 `getObject()` 方法的调用频率如何。几个`FactoryBean` 实现提供了这个方法。默认值是true。如果你想使用有状态的advice-例如，for stateful mixins ——使用prototype advices，singleton 值是false。
+
+#### 6.5.3. JDK- and CGLIB-based proxies
+
+本节作为明确文档，在 对于一个特定target对象（要被代理）`ProxyFactoryBean`  怎么选择创建一个JDK还是CGLIB-baed的代理。
+
+**ProxyFactoryBean在创建JDK或基于cglib的代理方面的行为在版本1.2和2.0之间发生了变化。 `ProxyFactoryBean`  现在对于自动检测接口作为`TransactionProxyFactoryBean` 类展现相同的语义。**
+
+如果要被代理的目标对象的类（以下简称为target类）没有实现任何接口，那么就会创建一个基于cglib的代理。 这是最简单的情况，因为JDK代理是基于接口的，并且没有接口意味着JDK代理是不可能的。 简单地插入目标bean，并通过 `interceptorNames`属性指定拦截器的列表。注意CGLIB-based 代理将被创建即使`ProxyFactoryBean`  的`proxyTargetClass`  属性被设置为false（显然，这毫无意义，最好从bean定义中删除，因为它最多是多余的，最糟糕的是令人困惑）。
+
+如果目标类实现一个（多个）接口，然后所创建的代理类型取决于`ProxyFactoryBean`的配置。 
+
+如果 `ProxyFactoryBean`  的`proxyTargetClass`  属性被设置为true，CGLIB-based 代理会被创建。这是有道理的，而且符合 least surprise原则。 即使`ProxyFactoryBean`  的`proxyInterfaces`  属性已经被设置为一个或多个全限定接口名，实际上 `proxyTargetClass` 属性被设置为true，导致CGLIB-based代理生效。
+
+如果  `ProxyFactoryBean`  的`proxyInterfaces` 属性被设置为一个或多个全限定接口名，然后JDK-based代理被创建。被创建的代理将实现指定在`proxyInterfaces` 属性的所有接口；如果目标类恰好实现了比指定在`proxyInterfaces` 的更多的接口，这一切都很好，但是这些额外的接口将不会由返回的代理来实现。 
+
+如果`ProxyFactoryBean`  的`proxyInterfaces`  没有被设置，但是目标类确实实现了一个（或多个）接口，然后`ProxyFactoryBean`会自动检测到目标类确实实现了至少一个接口的事实，并且一个JDK-based代理被创建。实际上被代理的接口将是目标类实现的所有接口；实际上，这与简单地提供目标类实现的`ProxyInterface`属性的每个接口的列表是一样的。 当然，它的工作要少得多，而且不容易出现拼写错误。 
+
+#### 6.5.4. Proxying interfaces
+
+让我们看一个简单的`ProxyFactoryBean`的例子。 这个例子包括: 
+
+- 将被代理的目标bean。下面的 "personTarget" bean定义
+- 一个Advisor  和一个Interceptor  用来提供advice
+- 一个AOP proxy bean定义，指定目标对象（personTarget bean），和要代理的接口以及要使用的advice。
+
+```
+<bean id="personTarget" class="com.mycompany.PersonImpl">
+    <property name="name" value="Tony"/>
+    <property name="age" value="51"/>
+</bean>
+
+<bean id="myAdvisor" class="com.mycompany.MyAdvisor">
+    <property name="someProperty" value="Custom string property value"/>
+</bean>
+
+<bean id="debugInterceptor" class="org.springframework.aop.interceptor.DebugInterceptor">
+</bean>
+
+<bean id="person"
+    class="org.springframework.aop.framework.ProxyFactoryBean">
+    <property name="proxyInterfaces" value="com.mycompany.Person"/>
+
+    <property name="target" ref="personTarget"/>
+    <property name="interceptorNames">
+        <list>
+            <value>myAdvisor</value>
+            <value>debugInterceptor</value>
+        </list>
+    </property>
+</bean>
+```
+
+注意`interceptorNames` 属性取了String的list：在当前工厂中拦截器或advice的bean名称。Advisors, interceptors, before, after returning and throws advice 对象可以被使用。advisors的顺序是很重要的。 
+
+**您可能想知道为什么这个列表不包含bean引用。 这样做的原因是，如果`ProxyFactoryBean`的singleton属性被设置为false，那么它必定能够返回独立的代理实例。 如果任何一个advisor本身就是一个prototype，需要返回一个独立的实例，因此，有必要从工厂获得prototype的实例 ；持有一个引用是不够的。** 
+
+ 上面的"person" bean定义可以被用来代替一个Person  实现，如下：
+
+```
+Person person = (Person) factory.getBean("person");
+```
+
+在同一个IoC上下文中的其他bean可以对其表示强类型依赖性，就像普通的Java对象一样： 
+
+```
+<bean id="personUser" class="com.mycompany.PersonUser">
+    <property name="person"><ref bean="person"/></property>
+</bean>
+```
+
+例子的 `PersonUser` 类将会暴露type Person的属性。就其而言，AOP代理可以透明地使用，以代替一个 "real" Person的实现。然而，它的类将是一个动态代理类。可以将其转换为`Advised`接口（如下所述）。 
+
+使用匿名内部bean来隐藏目标和代理之间的区别是可能的，如下所列。 只有`ProxyFactoryBean` 定义不同；advice被包含只为了完整性。
+
+```
+<bean id="myAdvisor" class="com.mycompany.MyAdvisor">
+    <property name="someProperty" value="Custom string property value"/>
+</bean>
+
+<bean id="debugInterceptor" class="org.springframework.aop.interceptor.DebugInterceptor"/>
+
+<bean id="person" class="org.springframework.aop.framework.ProxyFactoryBean">
+    <property name="proxyInterfaces" value="com.mycompany.Person"/>
+    <!-- Use inner bean, not local reference to target -->
+    <property name="target">
+        <bean class="com.mycompany.PersonImpl">
+            <property name="name" value="Tony"/>
+            <property name="age" value="51"/>
+        </bean>
+    </property>
+    <property name="interceptorNames">
+        <list>
+            <value>myAdvisor</value>
+            <value>debugInterceptor</value>
+        </list>
+    </property>
+</bean>
+```
+
+这有一个优点，那就是只有一个type `Person`对象： 如果我们想要阻止应用程序上下文的用户获得对未建议对象的引用，这是很有用的，或者需要避免使用Spring IoC自动连接的任何歧义。还有一个好处就是ProxyFactoryBean定义是自包含的。然而，有时能够从工厂获得 un-advised target实际上可能是一个优势：例如，在某些测试场景中。 
+
+#### 6.5.5. Proxying classes
+
+如果您需要代理一个类，而不是一个或多个接口，该怎么办？ 
+
+想象一下，在我们上面的例子中， 没有 `Person`接口：我们需要advise一个没有实现任何业务接口的`Person`类。在这种情况下，您可以配置Spring来使用CGLIB代理，而不是动态代理。 只需要设置ProxyFactoryBean  上的`proxyTargetClass` 属性为true。虽然最好是对接口进行编程，而不是类，在处理遗留代码时，为不实现接口的类提供建议的能力是非常有用的。 （一般来说，Spring并不是规范的。 虽然它可以很容易地应用好的实践，但是它避免了强制使用特定的方法 ）
+
+如果你想，你可以强制在所有情况使用CGLIB ，即使你有接口。
+
+CGLIB  代理通过在运行时生成目标类的子类工作。Spring配置这个生成的子类，将方法调用委托给原始目标：子类用于实现装饰模式，在advice中编织。 
+
+CGLIB代理通常对用户是透明的。然而，有一些问题需要考虑： 
+
+- `Final` 方法不能被advise，因为不能被override
+- 不需要添加CGLIB到classpath。自Spring 3.2，CGLIB被重新包装，并包含在spring-core JAR中。 换句话说，CGLIB-based AOP 开箱即用和JDK动态代理一样。
+
+在CGLIB代理和动态代理之间几乎没有性能差异。 自spring 1.0，动态代理的速度稍微快一些。然而，将来可能会改变。在这种情况下，性能不应该是决定性的考虑因素。
+
+#### 6.5.6. Using 'global' advisors
+
+通过把星号附加到interceptor name，所有advisor的bean name匹配星号前面部分的，都被添加到advisor链。如果你需要添加一个标志 'global' advisors 集合就派上了用场：
+
+```
+<bean id="proxy" class="org.springframework.aop.framework.ProxyFactoryBean">
+    <property name="target" ref="service"/>
+    <property name="interceptorNames">
+        <list>
+            <value>global*</value>
+        </list>
+    </property>
+</bean>
+
+<bean id="global_debug" class="org.springframework.aop.interceptor.DebugInterceptor"/>
+<bean id="global_performance" class="org.springframework.aop.interceptor.PerformanceMonitorInterceptor"/>
+```
+
+###  6.6. Concise proxy definitions
+
+特别是在定义事务性代理时，你可能会得到许多类似的代理定义。使用parent和子bean定义 ，和内部bean定义可以产生更简洁的代理定义。
+
+首先一个parent，*template* bean为代理创建：
+
+```
+<bean id="txProxyTemplate" abstract="true"
+        class="org.springframework.transaction.interceptor.TransactionProxyFactoryBean">
+    <property name="transactionManager" ref="transactionManager"/>
+    <property name="transactionAttributes">
+        <props>
+            <prop key="*">PROPAGATION_REQUIRED</prop>
+        </props>
+    </property>
+</bean>
+```
+
+这将永远不会被实例化，所以是不完整的。然后每个需要被创建的代理都只是一个子bean定义 ，将代理的目标包装为内部bean定义，因为目标永远不会被单独使用。 
+
+```
+<bean id="myService" parent="txProxyTemplate">
+    <property name="target">
+        <bean class="org.springframework.samples.MyServiceImpl">
+        </bean>
+    </property>
+</bean>
+```
+
+当然，可以从父模板中覆盖属性，在这种情况下，事务传播设置：
+
+```
+<bean id="mySpecialService" parent="txProxyTemplate">
+    <property name="target">
+        <bean class="org.springframework.samples.MySpecialServiceImpl">
+        </bean>
+    </property>
+    <property name="transactionAttributes">
+        <props>
+            <prop key="get*">PROPAGATION_REQUIRED,readOnly</prop>
+            <prop key="find*">PROPAGATION_REQUIRED,readOnly</prop>
+            <prop key="load*">PROPAGATION_REQUIRED,readOnly</prop>
+            <prop key="store*">PROPAGATION_REQUIRED</prop>
+        </props>
+    </property>
+</bean>
+```
+
+注意，在上面的例子中，我们通过使用*abstract* 属性显式地将父bean定义标记为抽象， 如 [previously](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-child-bean-definitions) 所述，所以它可能不会被实例化。应用程序上下文（但不是简单的bean工厂）在默认情况下会预先实例化所有的单例。 因此(至少对单例bean),如果你有一个(父)bean定义你只打算使用作为模板,这个定义指定了一个类,您必须确保设置abstract属性为true,否则应用程序上下文会试图pre-instantiate它。 
+
+###  6.7. Creating AOP proxies programmatically with the ProxyFactory
+
+使用Spring编程式创建AOP代理很容易。这使您能够不依赖Spring IoC使用Spring AOP。 
+
+下面的清单显示了目标对象代理的创建， 有1个interceptor和一个advisor。目标对象实现的接口会被自动代理：
+
+```
+ProxyFactory factory = new ProxyFactory(myBusinessInterfaceImpl);
+factory.addAdvice(myMethodInterceptor);
+factory.addAdvisor(myAdvisor);
+MyBusinessInterface tb = (MyBusinessInterface) factory.getProxy();
+```
+
+第一步构建 `org.springframework.aop.framework.ProxyFactory`类型对象。你可以用目标对象创建这个，就像上面的例子一样 ，或者指定在备用构造器中被代理的接口。
+
+你可以添加advices（带有interceptors 作为专门类型的advice）and/or advisors ，并在ProxyFactory的life中操纵它们。如果你添加一个 IntroductionInterceptionAroundAdvisor，您可以使代理实现额外的接口。 
+
+在ProxyFactory上也有方便的方法 （继承自AdvisedSupport ）允许你添加另外的advice类型比如 before and throws advice 。AdvisedSupport是ProxyFactory and ProxyFactoryBean的父类。
+
+在大多数应用程序中，将AOP代理创建与IoC框架集成是最佳实践。 我们建议您使用AOP将配置从Java代码中具体化，就像一般情况一样。 
+
+### 6.8. Manipulating advised objects
+
+然而你创建AOP代理，你可以用 `org.springframework.aop.framework.Advised` 接口操作他们。任何AOP代理都可以被转化成这个接口，不管它实现了任何接口。该接口包括以下方法： 
+
+```
+Advisor[] getAdvisors();
+
+void addAdvice(Advice advice) throws AopConfigException;
+
+void addAdvice(int pos, Advice advice) throws AopConfigException;
+
+void addAdvisor(Advisor advisor) throws AopConfigException;
+
+void addAdvisor(int pos, Advisor advisor) throws AopConfigException;
+
+int indexOf(Advisor advisor);
+
+boolean removeAdvisor(Advisor advisor) throws AopConfigException;
+
+void removeAdvisor(int index) throws AopConfigException;
+
+boolean replaceAdvisor(Advisor a, Advisor b) throws AopConfigException;
+
+boolean isFrozen();
+```
+
+`getAdvisors()` 方法对任何advisor，interceptor或者其他被添加到工厂的advice类型会返回一个Advisor 。如果你添加一个Advisor，在这个index返回的advisor将是你添加的对象。如果你添加了interceptor或者其他advice类型Spring将把它封装在一个带有pointcut的advisor中，这个切入点总是返回true。 因此，如果你添加`MethodInterceptor`，对这个indext返回的advisor 会是`DefaultPointcutAdvisor`  ，返回你的 `MethodInterceptor` 和一个匹配所有类和方法的pointcut。
+
+ `addAdvisor()` 方法用于添加任何Advisor。通常持有 pointcut and advice 的advisor会是generic `DefaultPointcutAdvisor`，用了被任何advice or pointcut使用。（不能用于 introductions）
+
+默认下，即使在创建代理之后，也可以添加或删除advisor或拦截器。唯一的限制是不可能添加或删除introduction advisor，因为来自工厂的现有代理不会显示接口更改。 
+
+一个简单的例子，将AOP代理转换为`Advised`接口，并检查和操作它的advice： 
+
+```
+Advised advised = (Advised) myObject;
+Advisor[] advisors = advised.getAdvisors();
+int oldAdvisorCount = advisors.length;
+System.out.println(oldAdvisorCount + " advisors");
+
+// Add an advice like an interceptor without a pointcut
+// Will match all proxied methods
+// Can use for interceptors, before, after returning or throws advice
+advised.addAdvice(new DebugInterceptor());
+
+// Add selective advice using a pointcut
+advised.addAdvisor(new DefaultPointcutAdvisor(mySpecialPointcut, myAdvice));
+
+assertEquals("Added two advisors", oldAdvisorCount + 2, advised.getAdvisors().length);
+```
+
+在生产中修改业务对象的建议是否可取（没有双关的意思）是值得怀疑的，尽管毫无疑问，是合法使用案例。然而，这在开发中很有用：例如,在测试。 我有时发现，能够以拦截器或其他建议的形式添加测试代码非常有用，进入我想要测试的方法调用。 （例如，建议可以进入为该方法创建的事务中：例如，在为回滚进行标记之前 ，运行SQL检查数据库是否正确更新 ）
+
+根据你创建代理的方式，你通常可以设置一个 `frozen` 标志 ，在这种情况下`Advised` `isFrozen()` 返回true，任何通过添加或删除来修改advice的尝试会导致`AopConfigException`。在某些情况下，冻结建议对象的状态的能力是有用的，例如，为了防止调用代码删除安全拦截器。它也可以在Spring 1.1中使用，以允许在不需要运行时通知修改的情况下进行积极的优化。 
+
+###  6.9. Using the "auto-proxy" facility
+
+到目前为止，我们已经考虑使用`ProxyFactoryBean`或类似的工厂bean显式地创建AOP代理。 
+
+spring也允许使用"auto-proxy"  bean定义，可以自动代理选定bean定义。这是在"bean post processor" 基础结构上构建的，可以在容器加载时修改任何bean定义。
+
+在这个模型中，您在XML bean定义文件中设置了一些特殊的bean定义来配置 auto proxy 基础结构。这允许你声明符合自动代理的目标：不需要使用 `ProxyFactoryBean` 。
+
+有两种方法可以做到这一点： 
+
+- 使用 auto-proxy creator引用当前context的特殊的beans
+- 一个特殊的自动代理创建案例，值得单独考虑；source-level metadata attributes驱动的auto-proxy creation。
+
+#### 6.9.1. Autoproxy bean definitions
+
+`org.springframework.aop.framework.autoproxy` 包提供以下标准auto-proxy creators。
+
+##### BeanNameAutoProxyCreator
+
+`BeanNameAutoProxyCreator`类是一个`BeanPostProcessor`  ，为匹配name或通配符的beans自动创建AOP代理。
+
+```
+<bean class="org.springframework.aop.framework.autoproxy.BeanNameAutoProxyCreator">
+    <property name="beanNames" value="jdk*,onlyJdk"/>
+    <property name="interceptorNames">
+        <list>
+            <value>myInterceptor</value>
+        </list>
+    </property>
+</bean>
+```
+
+和`ProxyFactoryBean`一样，有一个拦截器的属性，而不是一个拦截器列表，为prototype advisors 提供正确行为。名为 "interceptors" 可以是advisors or any advice type。
+
+与一般自动代理一样，使用`BeanNameAutoProxyCreator` 要点是将相同的配置应用于多个对象，使用最小的配置。这在对多个对象的声明式事务处理很流行。
+
+名称匹配的Bean定义，比如上例的"jdkMyBean" and "onlyJdk" 是普通的bean定义与目标类。AOP代理会自动通过 `BeanNameAutoProxyCreator`创建。同样的advice也适用于所有匹配的bean。注意，如果使用advisors（而不是上面例子中的拦截器），切入点可能会以不同的方式应用于不同的bean。 
+
+##### DefaultAdvisorAutoProxyCreator
+
+一个更通用的，非常强大的auto proxy creator 是`DefaultAdvisorAutoProxyCreator`。它会自定义应用当前context里合适的advisors，不需要在auto-proxy advisor’s bean定义中包含指定的bean names。和 `BeanNameAutoProxyCreator` 一样，它提供了相同的优点，即一致的配置和避免重复。
+
+使用此机制包括: 
+
+- 指定一个`DefaultAdvisorAutoProxyCreator`  定义
+- 在相同或相关context指定一些Advisors。注意这些必须是Advisors，不能仅仅是interceptors或者其他advices。这是必要的因为必须有一个pointcut 来评估，检查每个建议对候选bean定义的资格。 
+
+`DefaultAdvisorAutoProxyCreator`  会自动评估每个advisor包含的pointcut，去看哪个（如果有）advice应该被应用到每个业务对象（例如例子的"businessObject1" and "businessObject2"  ）。
+
+这意味着任何数量的advisors都可以自动地应用到每个业务对象中。 如果任何advisors中的切入点都不匹配业务对象中的任何方法，对象不会被代理。随着bean定义被添加到新的业务对象中 ，如果有必要，将自动进行代理。
+
+Autoproxying 通常有一个优势，使调用者或依赖得到一个un-advised对象是不可能的。在application context调用getBean("businessObject1") 将返回一个AOP代理，而不是目标业务对象（前面的"inner bean" idiom 也提供个这个优点）。
+
+```
+<bean class="org.springframework.aop.framework.autoproxy.DefaultAdvisorAutoProxyCreator"/>
+
+<bean class="org.springframework.transaction.interceptor.TransactionAttributeSourceAdvisor">
+    <property name="transactionInterceptor" ref="transactionInterceptor"/>
+</bean>
+
+<bean id="customAdvisor" class="com.mycompany.MyAdvisor"/>
+
+<bean id="businessObject1" class="com.mycompany.BusinessObject1">
+    <!-- Properties omitted -->
+</bean>
+
+<bean id="businessObject2" class="com.mycompany.BusinessObject2"/>
+```
+
+`DefaultAdvisorAutoProxyCreator` 很有用，如果你想将相同的advice始终应用于许多业务对象。 一旦基础设施定义就位，您可以简单地添加新的业务对象，而不包括特定的代理配置。您还可以很容易地删除额外的advice——例如 ，跟踪或性能监视aspect——对配置进行最小的更改。
+
+ DefaultAdvisorAutoProxyCreator 提供了过滤器支持（使用命名约定，这样只对特定的顾问进行评估，允许在同一工厂使用不同配置的、不同配置的顾问自动创建器 ） 和排序。Advisor可以实现`org.springframework.core.Ordered` 接口保证正确排序。上个例子使用的TransactionAttributeSourceAdvisor 有一个可配置的排序值；默认设置是没有排序的。
+
+###  6.10. Using TargetSources
+
+spring提供*TargetSource*概念，在`org.springframework.aop.TargetSource` 接口被解释。这个接口负责返回实现join point的"target object" 。`TargetSource` 实现在每一次AOP代理处理一个方法调用时，被要求返回一个target instance 。
+
+使用spring AOP不需要直接操作TargetSources ，但他提供了种强大的支持pooling、热插拔和其他复杂目标的方法 。例如，一个pooling TargetSource 对每次调用返回不同的target instance，使用一个pool来管理实例。
+
+如果你没有指定TargetSource，一个默认的包装本地对象的实现被使用。对每次调用返回相同的target（如你所期望）。
+
+让我们看一下Spring提供的标准target sources，以及如何使用它们。 
+
+**当使用自定义target source，你的target通常需要是prototype而不是singleton bean定义。这允许Spring在需要时创建一个新的目标实例。** 
+
+####  6.10.1. Hot swappable target sources
+
+`org.springframework.aop.target.HotSwappableTargetSource` 的存在，允许一个AOP代理的target 在允许调用者保持对它的引用的同时进行切换。
+
+改变target source’s target立刻生效。`HotSwappableTargetSource` 是线程安全的。
+
+你可以通过HotSwappableTargetSource  上的 `swap()`  方法改变target，如下：
+
+```
+HotSwappableTargetSource swapper = (HotSwappableTargetSource) beanFactory.getBean("swapper");
+Object oldTarget = swapper.swap(newTarget);
+```
+
+The XML definitions required look as follows: 
+
+```
+<bean id="initialTarget" class="mycompany.OldTarget"/>
+
+<bean id="swapper" class="org.springframework.aop.target.HotSwappableTargetSource">
+    <constructor-arg ref="initialTarget"/>
+</bean>
+
+<bean id="swappable" class="org.springframework.aop.framework.ProxyFactoryBean">
+    <property name="targetSource" ref="swapper"/>
+</bean>
+```
+
+`swap()`  调用改变了swappable bean的target。对那个bean有引用的客户端将不会意识到这个变化，但是会立刻hitting新的target。
+
+虽然这个例子没有加advice——并且使用`TargetSource` 不必要添加advice——当然`TargetSource`  和任意类型的advice一起使用。
+
+####  6.10.2. Pooling target sources
+
+使用一个pooling target source 为stateless session EJBs 提供相似的编程模型，在EJBs存在一个包含相同对象的pool，带有释放池中对象的方法调用。
+
+Spring pooling and SLSB pooling 的一个关键区别是Spring pooling 可以应用到任意POJO。使用spring通常以无侵入性的方式应用service。
+
+spring为Commons Pool 2.2 提供开箱即用的支持，这提供了一个相当有效的池实现。使用这个特性需要 commons-pool Jar 。继承`org.springframework.aop.target.AbstractPoolingTargetSource` 支持任意其他的pooling API也是可以的。
+
+**Commons Pool 1.5+ 也是支持的从spring4.2被弃用。**
+
+示例配置如下所示： 
+
+```
+<bean id="businessObjectTarget" class="com.mycompany.MyBusinessObject"
+        scope="prototype">
+    ... properties omitted
+</bean>
+
+<bean id="poolTargetSource" class="org.springframework.aop.target.CommonsPool2TargetSource">
+    <property name="targetBeanName" value="businessObjectTarget"/>
+    <property name="maxSize" value="25"/>
+</bean>
+
+<bean id="businessObject" class="org.springframework.aop.framework.ProxyFactoryBean">
+    <property name="targetSource" ref="poolTargetSource"/>
+    <property name="interceptorNames" value="myInterceptor"/>
+</bean>
+```
+
+注意例子的 "businessObjectTarget"  target object -必须是prototype 。这允许 `PoolingTargetSource`实现来创建target新实例来增长池。see `AbstractPoolingTargetSource`   和具体实现类的javadocs关于它的属性： "maxSize" 是最基本的，通常保证要给出。
+
+在这个例子， "myInterceptor" 是一个interceptor ，需要定义在相同IoC context。然而，没必要指定interceptors 使用pooling。如果你想只用pooling，不用其他advice，不要设置interceptorNames 属性。
+
+配置spring把任何pooled object转换成`org.springframework.aop.target.PoolingConfig` 接口是可以的，它通过一个introduction暴露了配置和当前池大小的信息。你需要定义advisor 像这样：
+
+```
+<bean id="poolConfigAdvisor" class="org.springframework.beans.factory.config.MethodInvokingFactoryBean">
+    <property name="targetObject" ref="poolTargetSource"/>
+    <property name="targetMethod" value="getPoolingConfigMixin"/>
+</bean>
+```
+
+调用 `AbstractPoolingTargetSource` 类上的便利方法获得advisor，因此使用MethodInvokingFactoryBean 。advisor（"poolConfigAdvisor" ）name必须在暴露pooled对象的ProxyFactoryBean 中的interceptors names 的list。
+
+The cast will look as follows: 
+
+```
+PoolingConfig conf = (PoolingConfig) beanFactory.getBean("businessObject");
+System.out.println("Max pool size is " + conf.getMaxSize());
+```
+
+Pooling stateless service objects 通常不必要。我们不相信他会是默认选择，因为大多数无状态对象是线程安全的，并且如果资源被缓存，实例池是有问题的。
+
+使用auto-proxying Simpler pooling is available 。设置TargetSources 被任意 auto-proxy creator 使用是可以的。
+
+#### 6.10.3. Prototype target sources
+
+设置"prototype" target source 类似于 pooling TargetSource 。在这种情况下，将在每个方法调用上创建目标的新实例。 虽然在现代JVM中创建新对象的成本并不高 ，连接新对象（满足其IoC依赖性）的成本可能更昂贵。 因此，你不应该在没有充分理由的情况下使用这种方法。 
+
+要做到，你可以修改`poolTargetSource` 定义如下，（为了清晰，改了名字）：
+
+```
+<bean id="prototypeTargetSource" class="org.springframework.aop.target.PrototypeTargetSource">
+    <property name="targetBeanName" ref="businessObjectTarget"/>
+</bean>
+```
+
+只有一个属性：target bean  name。TargetSource 实现使用了继承确保一致的命名。与the pooling target source一样， target bean  必须是一个prototype bean 定义。
+
+####  6.10.4. ThreadLocal target sources
+
+`ThreadLocal` target sources 是有用的，如果你要为每个要来的请求（per thread that is ）创建一个对象。`ThreadLocal` 概念提供JDK-wide设施来透明地将资源存储在线程旁边 。设置`ThreadLocalTargetSource`几乎与其他类型的目标源所解释的一样： 
+
+```
+<bean id="threadlocalTargetSource" class="org.springframework.aop.target.ThreadLocalTargetSource">
+    <property name="targetBeanName" value="businessObjectTarget"/>
+</bean>
+```
+
+ThreadLocals 带来严重问题（可能导致内存泄漏 ）当在多线程和多类加载器环境中错误地使用它们时 。应该总是考虑在其他类中包装ThreadLocal，并且从不直接使用ThreadLocal本身（当然，除了包装器类之外）。 而且，应该始终记住正确set and unset  （后者只需要调用ThreadLocal.set（null））线程本地的资源。 在任何情况下都应该进行Unsetting  ，因为not Unsetting 可能会导致有问题的行为。 Spring的ThreadLocal支持对您来说是这样的，并且应该始终考虑使用ThreadLocal，而不需要其他适当的处理代码。 
+
+###  6.11. Defining new Advice types
+
+Spring AOP  被设计出可扩展的。
