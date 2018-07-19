@@ -9501,4 +9501,679 @@ ThreadLocals 带来严重问题（可能导致内存泄漏 ）当在多线程和
 
 ###  6.11. Defining new Advice types
 
-Spring AOP  被设计出可扩展的。
+Spring AOP  被设计是可扩展的。虽然拦截实现策略目前是内部使用，但是有可能会支持除了out-of-the-box interception around advice, before, throws advice and after returning advice 之外的任意advice类型。
+
+ `org.springframework.aop.framework.adapter`  包是一个SPI包，允许添加自定义advice类型而不改变core framework。一个`Advice` 的唯一约束是必须实现`org.aopalliance.aop.Advice` 标记接口。
+
+Please refer to the `org.springframework.aop.framework.adapter` javadocs for further information. 
+
+## 7. Null-safety
+
+虽然Java的类型系统不允许表达 null-safety ，spring在`org.springframework.lang` 包提供了nullability of APIs and fields: 
+
+- [`@NonNull`](https://docs.spring.io/spring-framework/docs/5.0.7.RELEASE/javadoc-api/org/springframework/lang/NonNull.html)  注解在参数，返回值和field不能为null（在有 `@NonNullApi` and `@NonNullFields`上不需要在参数和返回值加）
+- [`@Nullable`](https://docs.spring.io/spring-framework/docs/5.0.7.RELEASE/javadoc-api/org/springframework/lang/Nullable.html) 注解在参数，返回值或field不为null
+- [`@NonNullApi`](https://docs.spring.io/spring-framework/docs/5.0.7.RELEASE/javadoc-api/org/springframework/lang/NonNullApi.html) 在包级别声明参数和返回值的non-null行为
+- [`@NonNullFields`](https://docs.spring.io/spring-framework/docs/5.0.7.RELEASE/javadoc-api/org/springframework/lang/NonNullFields.html) 包级别声明field的non-null行为
+
+spring自己就用这些注解，但是它们也可以在任何Spring的Java项目中使用，以声明 null-safe APIs和optionally null-safe fields。 泛型类型参数，可变参数和数组元素的nullability 至今还未支持，但应该在要发布的版本中有，最新的信息 see [SPR-15942](https://jira.spring.io/browse/SPR-15942)  。
+
+像 Reactor or Spring Data 库利用这个特性提供null-safe APIs 。
+
+### 7.1. Use cases
+
+除了对Spring Framework API nullability 提供显示声明外，这些注解也可以被IDE使用，提供有用的关于null-safety 提醒避免运行时 `NullPointerException` 。
+
+They are also used to make Spring API null-safe in Kotlin projects since Kotlin natively supports [null-safety](https://kotlinlang.org/docs/reference/null-safety.html). More details are available in [Kotlin support documentation](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/languages.html#kotlin-null-safety). 
+
+### 7.2. JSR 305 meta-annotations
+
+Spring注解是用 [JSR 305](https://jcp.org/en/jsr/detail?id=305) 的元注释 （一个休眠但广泛传播的JSR ）。JSR 305元注释允许像IDEA或Kotlin这样的工具供应商以一种通用的方式提供空安全支持，而不需要对Spring注释进行硬编码支持。 
+
+在项目类路径中添加JSR 305依赖项是不必要的，也不建议使用Spring nulsafe API。 只有像基于spring的库这样的项目在代码库中使用空安全注释才会添加`com.google.code.findbugs:jsr305:3.0.2` with `compileOnly` Gradle configuration or Maven `provided` scope to avoid compile warnings. 
+
+##  8. Data Buffers and Codecs
+
+### 8.1. Introduction
+
+`DataBuffer` 接口在byte buffers 上定义了一个抽象。引入它且不使用`java.nio.ByteBuffer` 的主要原因是Netty。Netty 不使用 `ByteBuffer` ，而是提供 `ByteBuf`  作为替代。Spring的`DataBuffer`是ByteBuf的一个简单的抽象，它也可以用于非netty平台（即Servlet 3.1+）。 
+
+###  8.2. `DataBufferFactory`
+
+ `DataBufferFactory`  提供分配新 data buffers 以及封装存在数据的功能。 `allocate`方法分配一个 new data buffer ，有默认的或给定的容量 。虽然 `DataBuffer`  实现按需增加或缩减，提前给出容量更有效，如果知道容量的话。 `wrap`  方法装饰一个存在的 `ByteBuffer` or byte array 。包装不涉及分配： 他只是用一个`DataBuffer`  实现来包装给定数据。
+
+ `DataBufferFactory` 有2个实现： `NettyDataBufferFactory` 意味着在Netty平台使用，比如Reactor Netty 。另一个实现， `DefaultDataBufferFactory`，在其他平台使用，比如Servlet 3.1+ servers 。
+
+###  8.3. The `DataBuffer` interface
+
+`DataBuffer` 接口类似 `ByteBuffer` ，但提供一些优势。和 Netty’s `ByteBuf`类似，`DataBuffer` 抽象提供独立的读写位置。不同于JDK的`ByteBuffer`, 只是为读和写暴露一个位置，以及一个`flip()`  操作在这两种I/O之间切换。通常，以下不变条件适用：
+
+```
+0 <= read position <= write position <= capacity
+```
+
+当从 `DataBuffer` 读bytes，read position 自动更新与从buffer读到的数据量一致。类似地，当写bytes到 `DataBuffer` ，write position 更新为写到buffer的数据量一致。并且，写的时候，`DataBuffer` 容量是自动扩展的，就像`StringBuilder`,`ArrayList`, 和类似类型。
+
+除了上述的读写能力， `DataBuffer` 也有方法可以把a (slice of a) buffer 看作`ByteBuffer`, `InputStream`, or `OutputStream`。另外，提供了决定给定byte的索引的方法。
+
+两个 `DataBuffer`实现：`NettyDataBuffer`  ，意味着在Netty平台使用，比如Reactor Netty 。另一个实现， `DefaultDataBuffer`，在其他平台使用，比如Servlet 3.1+ servers 。
+
+####  8.3.1. `PooledDataBuffer`
+
+`PooledDataBuffer` 是 `DataBuffer` 的扩展添加了引用计数方法。`retain`  方法引用增加就+1。`release` 方法count-1，当count为0，释放buffer的内存。两个方法和*reference counting*关联，这个机制解释如下。
+
+注意`DataBufferUtils`  提供有用的utils方法来释放和保留pooled data buffers 。这些方法把一个普通的`DataBuffer` 作为参数，但是只调用`retain` or `release` 如果passed data buffer是 `PooledDataBuffer` 的实例。
+
+##### Reference Counting
+
+引用计数在Java中不是一种常见的技术；在其他编程语言Object C and C++ 更常见。就其本身而言，引用计数并不复杂 ：它主要涉及到跟踪应用于对象的引用数量。 一个 `PooledDataBuffer` 的引用计数从1开始，调用 `retain` 增加，调用 `release` 减少。只要buffer的引用计数大于0，buffer就不会被释放。当数字减少到0时，实例将被释放 。在实践中，这意味着缓冲所捕获的保留内存将被返回到内存池，准备用于未来的分配。 
+
+通常，访问*DataBuffer*的最后一个组件负责释放它。在spring，有两种类型的组件可以释放缓冲区： decoders and transports。Decoders 负责转换buffers 的流成为其他类型（see [Codecs](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#codecs) below  ），transports 负责通过网络边界发送buffer，特别是作为HTTP信息。这意味着你分配data buffers为了把它们放进外出的HTTP信息（例如客户端请求或服务器端响应 ），它们不需要被释放。这条规则的另一个结果是如果你分配的数据缓冲区不会出现在body中，例如，由于抛出异常，您必须自己释放它们。 下面的代码片段显示了一个典型的DataBuffer使用场景，在处理抛出异常的方法时： 
+
+```
+DataBufferFactory factory = ...
+DataBuffer buffer = factory.allocateBuffer(); 1
+boolean release = true; 2
+try {
+    writeDataToBuffer(buffer); 3
+    putBufferInHttpBody(buffer);
+    release = false; 4
+}
+finally {
+    if (release) {
+        DataBufferUtils.release(buffer); 5
+    }
+}
+
+private void writeDataToBuffer(DataBuffer buffer) throws IOException { 3
+    ...
+}
+```
+
+1. 分配new buffer 
+2. 表明分配的buffer是否应该被释放的flag
+3. 示例方法加载数据到buffer。注意方法可以抛出`IOException`，因此`finally` 块用来释放buffer是需要的。
+4. 如果没有exception  发生，切换 `release` flag to `false` ，缓冲区将被释放，作为将HTTP主体发送到整个网络的一部分。 
+5. 发生异常，flag仍然是rue，buffer在这里被释放。
+
+#### 8.3.2. DataBufferUtils
+
+`DataBufferUtils` 包含各种util方法操作data buffers 。它包含方法从`InputStream` or NIO `Channel` 读取`DataBuffer`  对象的 `Flux`  ，和方法写data buffer `Flux` 到`OutputStream` or `Channel` 。`DataBufferUtils`  也暴露`retain` and `release`  方法操作一个plain  `DataBuffer`  实例（那样转换到 `PooledDataBuffer` 就不需要了）。
+
+另外，`DataBufferUtils` 暴露了`compose`，把data buffers的流合并为一个。比如，这个方法可以用来把整个HTTP body转化成 single buffer （从a `String`, or `InputStream` ）。这在处理旧的阻塞api时特别有用。 但是请注意，这将整个body置于内存，因此，使用比纯流解决方案更多的内存。 
+
+### Codecs
+
+`org.springframework.core.codec` 包 包含2个主要抽象把字节流转换成对象流，或者反过来。 `Encoder`是策略接口把对象流编码到data buffers 的输出流。 `Decoder`做相反的事情：把data buffers流转换成 objects的流。注意decoder 实例需要考虑 [reference counting](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#databuffer-reference-counting) 。
+
+Spring提供了大量的默认编解码器，能转换from/to `String`, `ByteBuffer`, byte arrays,  以及支持 marshalling libraries比如JAXB和Jackson（with [Jackson 2.9+ support for non-blocking parsing](https://github.com/FasterXML/jackson-core/issues/57) ）。在Spring WebFlux context，codecs  用于转换request body 为 `@RequestMapping` 参数，或者把返回类型转换成response body 返回给客户端。默认codecs 在`WebFluxConfigurationSupport`  配置，可以继承`configureHttpMessageCodecs` 重写来改变。For more information about using codecs in WebFlux, see [this section](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-codecs). 
+
+##  9. Appendix
+
+###  9.1. XML Schemas
+
+附录的这一部分列出了与核心容器相关的XML模式。 
+
+####  9.1.1. The util schema
+
+#### 9.1.2. The aop schema
+
+#### 9.1.3. The context schema
+
+##### ` <property-placeholder/>`
+
+##### `<annotation-config/>`
+
+#####  `<component-scan/>`
+
+This element is detailed in [Annotation-based container configuration](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-annotation-config).
+
+##### `<load-time-weaver/>`
+
+This element is detailed in [Load-time weaving with AspectJ in the Spring Framework](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-aj-ltw).
+
+##### `<spring-configured/>`
+
+This element is detailed in [Using AspectJ to dependency inject domain objects with Spring](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#aop-atconfigurable).
+
+##### `<mbean-export/>`
+
+This element is detailed in [Configuring annotation based MBean export](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/integration.html#jmx-context-mbeanexport).
+
+#### 9.1.4. The beans schema
+
+### 9.2. XML Schema Authoring
+
+####  9.2.1. Introduction
+
+Since version 2.0, Spring has featured a mechanism for schema-based extensions to the basic Spring XML format for defining and configuring beans. This section is devoted to detailing how you would go about writing your own custom XML bean definition parsers and integrating such parsers into the Spring IoC container.
+
+To facilitate the authoring of configuration files using a schema-aware XML editor, Spring’s extensible XML configuration mechanism is based on XML Schema. If you are not familiar with Spring’s current XML configuration extensions that come with the standard Spring distribution, please first read the appendix entitled[[xsd-config\]](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-config).
+
+Creating new XML configuration extensions can be done by following these (relatively) simple steps:
+
+- [Authoring](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-custom-schema) an XML schema to describe your custom element(s).
+- [Coding](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-custom-namespacehandler) a custom `NamespaceHandler` implementation (this is an easy step, don’t worry).
+- [Coding](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-custom-parser) one or more `BeanDefinitionParser` implementations (this is where the real work is done).
+- [Registering](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-custom-registration) the above artifacts with Spring (this too is an easy step).
+
+What follows is a description of each of these steps. For the example, we will create an XML extension (a custom XML element) that allows us to configure objects of the type `SimpleDateFormat` (from the `java.text` package) in an easy manner. When we are done, we will be able to define bean definitions of type `SimpleDateFormat` like this:
+
+```
+<myns:dateformat id="dateFormat"
+    pattern="yyyy-MM-dd HH:mm"
+    lenient="true"/>
+```
+
+*(Don’t worry about the fact that this example is very simple; much more detailed examples follow afterwards. The intent in this first simple example is to walk you through the basic steps involved.)*
+
+#### 9.2.2. Authoring the schema
+
+Creating an XML configuration extension for use with Spring’s IoC container starts with authoring an XML Schema to describe the extension. What follows is the schema we’ll use to configure `SimpleDateFormat` objects.
+
+```
+<!-- myns.xsd (inside package org/springframework/samples/xml) -->
+
+<?xml version="1.0" encoding="UTF-8"?>
+<xsd:schema xmlns="http://www.mycompany.com/schema/myns"
+        xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+        xmlns:beans="http://www.springframework.org/schema/beans"
+        targetNamespace="http://www.mycompany.com/schema/myns"
+        elementFormDefault="qualified"
+        attributeFormDefault="unqualified">
+
+    <xsd:import namespace="http://www.springframework.org/schema/beans"/>
+
+    <xsd:element name="dateformat">
+        <xsd:complexType>
+            <xsd:complexContent>
+                <xsd:extension base="beans:identifiedType">
+                    <xsd:attribute name="lenient" type="xsd:boolean"/>
+                    <xsd:attribute name="pattern" type="xsd:string" use="required"/>
+                </xsd:extension>
+            </xsd:complexContent>
+        </xsd:complexType>
+    </xsd:element>
+</xsd:schema>
+```
+
+(The emphasized line contains an extension base for all tags that will be identifiable (meaning they have an `id` attribute that will be used as the bean identifier in the container). We are able to use this attribute because we imported the Spring-provided`'beans'` namespace.)
+
+The above schema will be used to configure `SimpleDateFormat` objects, directly in an XML application context file using the `<myns:dateformat/>` element.
+
+```
+<myns:dateformat id="dateFormat"
+    pattern="yyyy-MM-dd HH:mm"
+    lenient="true"/>
+```
+
+Note that after we’ve created the infrastructure classes, the above snippet of XML will essentially be exactly the same as the following XML snippet. In other words, we’re just creating a bean in the container, identified by the name `'dateFormat'` of type`SimpleDateFormat`, with a couple of properties set.
+
+```
+<bean id="dateFormat" class="java.text.SimpleDateFormat">
+    <constructor-arg value="yyyy-HH-dd HH:mm"/>
+    <property name="lenient" value="true"/>
+</bean>
+```
+
+|      | The schema-based approach to creating configuration format allows for tight integration with an IDE that has a schema-aware XML editor. Using a properly authored schema, you can use autocompletion to have a user choose between several configuration options defined in the enumeration. |
+| ---- | ------------------------------------------------------------ |
+|      |                                                              |
+
+#### 9.2.3. Coding a NamespaceHandler
+
+In addition to the schema, we need a `NamespaceHandler` that will parse all elements of this specific namespace Spring encounters while parsing configuration files. The `NamespaceHandler` should in our case take care of the parsing of the `myns:dateformat` element.
+
+The `NamespaceHandler` interface is pretty simple in that it features just three methods:
+
+- `init()` - allows for initialization of the `NamespaceHandler` and will be called by Spring before the handler is used
+- `BeanDefinition parse(Element, ParserContext)` - called when Spring encounters a top-level element (not nested inside a bean definition or a different namespace). This method can register bean definitions itself and/or return a bean definition.
+- `BeanDefinitionHolder decorate(Node, BeanDefinitionHolder, ParserContext)` - called when Spring encounters an attribute or nested element of a different namespace. The decoration of one or more bean definitions is used for example with the[out-of-the-box scopes Spring supports](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-factory-scopes). We’ll start by highlighting a simple example, without using decoration, after which we will show decoration in a somewhat more advanced example.
+
+Although it is perfectly possible to code your own `NamespaceHandler` for the entire namespace (and hence provide code that parses each and every element in the namespace), it is often the case that each top-level XML element in a Spring XML configuration file results in a single bean definition (as in our case, where a single `<myns:dateformat/>` element results in a single `SimpleDateFormat` bean definition). Spring features a number of convenience classes that support this scenario. In this example, we’ll make use the `NamespaceHandlerSupport` class:
+
+```
+package org.springframework.samples.xml;
+
+import org.springframework.beans.factory.xml.NamespaceHandlerSupport;
+
+public class MyNamespaceHandler extends NamespaceHandlerSupport {
+
+    public void init() {
+        registerBeanDefinitionParser("dateformat", new SimpleDateFormatBeanDefinitionParser());
+    }
+
+}
+```
+
+The observant reader will notice that there isn’t actually a whole lot of parsing logic in this class. Indeed… the `NamespaceHandlerSupport` class has a built in notion of delegation. It supports the registration of any number of `BeanDefinitionParser` instances, to which it will delegate to when it needs to parse an element in its namespace. This clean separation of concerns allows a `NamespaceHandler` to handle the orchestration of the parsing of *all* of the custom elements in its namespace, while delegating to `BeanDefinitionParsers` to do the grunt work of the XML parsing; this means that each `BeanDefinitionParser` will contain just the logic for parsing a single custom element, as we can see in the next step
+
+#### 9.2.4. BeanDefinitionParser
+
+A `BeanDefinitionParser` will be used if the `NamespaceHandler` encounters an XML element of the type that has been mapped to the specific bean definition parser (which is `'dateformat'` in this case). In other words, the `BeanDefinitionParser` is responsible for parsing *one* distinct top-level XML element defined in the schema. In the parser, we’ll have access to the XML element (and thus its subelements too) so that we can parse our custom XML content, as can be seen in the following example:
+
+```
+package org.springframework.samples.xml;
+
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.xml.AbstractSingleBeanDefinitionParser;
+import org.springframework.util.StringUtils;
+import org.w3c.dom.Element;
+
+import java.text.SimpleDateFormat;
+
+public class SimpleDateFormatBeanDefinitionParser extends AbstractSingleBeanDefinitionParser { 
+
+    protected Class getBeanClass(Element element) {
+        return SimpleDateFormat.class; 
+    }
+
+    protected void doParse(Element element, BeanDefinitionBuilder bean) {
+        // this will never be null since the schema explicitly requires that a value be supplied
+        String pattern = element.getAttribute("pattern");
+        bean.addConstructorArg(pattern);
+
+        // this however is an optional property
+        String lenient = element.getAttribute("lenient");
+        if (StringUtils.hasText(lenient)) {
+            bean.addPropertyValue("lenient", Boolean.valueOf(lenient));
+        }
+    }
+
+}
+```
+
+|      | We use the Spring-provided `AbstractSingleBeanDefinitionParser` to handle a lot of the basic grunt work of creating a *single* `BeanDefinition`. |
+| ---- | ------------------------------------------------------------ |
+|      | We supply the `AbstractSingleBeanDefinitionParser` superclass with the type that our single `BeanDefinition` will represent. |
+
+In this simple case, this is all that we need to do. The creation of our single `BeanDefinition` is handled by the `AbstractSingleBeanDefinitionParser` superclass, as is the extraction and setting of the bean definition’s unique identifier.
+
+#### 9.2.5. Registering the handler and the schema
+
+The coding is finished! All that remains to be done is to somehow make the Spring XML parsing infrastructure aware of our custom element; we do this by registering our custom `namespaceHandler` and custom XSD file in two special purpose properties files. These properties files are both placed in a `'META-INF'` directory in your application, and can, for example, be distributed alongside your binary classes in a JAR file. The Spring XML parsing infrastructure will automatically pick up your new extension by consuming these special properties files, the formats of which are detailed below.
+
+##### 'META-INF/spring.handlers'
+
+The properties file called `'spring.handlers'` contains a mapping of XML Schema URIs to namespace handler classes. So for our example, we need to write the following:
+
+```
+http\://www.mycompany.com/schema/myns=org.springframework.samples.xml.MyNamespaceHandler
+```
+
+*(The ':' character is a valid delimiter in the Java properties format, and so the ':' character in the URI needs to be escaped with a backslash.)*
+
+The first part (the key) of the key-value pair is the URI associated with your custom namespace extension, and needs to *match exactly* the value of the `'targetNamespace'` attribute as specified in your custom XSD schema.
+
+##### 'META-INF/spring.schemas'
+
+The properties file called `'spring.schemas'` contains a mapping of XML Schema locations (referred to along with the schema declaration in XML files that use the schema as part of the `'xsi:schemaLocation'` attribute) to *classpath* resources. This file is needed to prevent Spring from absolutely having to use a default `EntityResolver` that requires Internet access to retrieve the schema file. If you specify the mapping in this properties file, Spring will search for the schema on the classpath (in this case`'myns.xsd'` in the `'org.springframework.samples.xml'` package):
+
+```
+http\://www.mycompany.com/schema/myns/myns.xsd=org/springframework/samples/xml/myns.xsd
+```
+
+The upshot of this is that you are encouraged to deploy your XSD file(s) right alongside the `NamespaceHandler` and `BeanDefinitionParser` classes on the classpath.
+
+#### 9.2.6. Using a custom extension in your Spring XML configuration
+
+Using a custom extension that you yourself have implemented is no different from using one of the 'custom' extensions that Spring provides straight out of the box. Find below an example of using the custom `<dateformat/>` element developed in the previous steps in a Spring XML configuration file.
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:myns="http://www.mycompany.com/schema/myns"
+    xsi:schemaLocation="
+        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.mycompany.com/schema/myns http://www.mycompany.com/schema/myns/myns.xsd">
+
+    <!-- as a top-level bean -->
+    <myns:dateformat id="defaultDateFormat" pattern="yyyy-MM-dd HH:mm" lenient="true"/>
+
+    <bean id="jobDetailTemplate" abstract="true">
+        <property name="dateFormat">
+            <!-- as an inner bean -->
+            <myns:dateformat pattern="HH:mm MM-dd-yyyy"/>
+        </property>
+    </bean>
+
+</beans>
+```
+
+#### 9.2.7. Meatier examples
+
+Find below some much meatier examples of custom XML extensions.
+
+##### Nesting custom tags within custom tags
+
+This example illustrates how you might go about writing the various artifacts required to satisfy a target of the following configuration:
+
+```
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xmlns:foo="http://www.foo.com/schema/component"
+    xsi:schemaLocation="
+        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.foo.com/schema/component http://www.foo.com/schema/component/component.xsd">
+
+    <foo:component id="bionic-family" name="Bionic-1">
+        <foo:component name="Mother-1">
+            <foo:component name="Karate-1"/>
+            <foo:component name="Sport-1"/>
+        </foo:component>
+        <foo:component name="Rock-1"/>
+    </foo:component>
+
+</beans>
+```
+
+The above configuration actually nests custom extensions within each other. The class that is actually configured by the above `<foo:component/>` element is the `Component` class (shown directly below). Notice how the `Component` class does *not* expose a setter method for the `'components'` property; this makes it hard (or rather impossible) to configure a bean definition for the `Component` class using setter injection.
+
+```
+package com.foo;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class Component {
+
+    private String name;
+    private List<Component> components = new ArrayList<Component> ();
+
+    // mmm, there is no setter method for the 'components'
+    public void addComponent(Component component) {
+        this.components.add(component);
+    }
+
+    public List<Component> getComponents() {
+        return components;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+}
+```
+
+The typical solution to this issue is to create a custom `FactoryBean` that exposes a setter property for the `'components'`property.
+
+```
+package com.foo;
+
+import org.springframework.beans.factory.FactoryBean;
+
+import java.util.List;
+
+public class ComponentFactoryBean implements FactoryBean<Component> {
+
+    private Component parent;
+    private List<Component> children;
+
+    public void setParent(Component parent) {
+        this.parent = parent;
+    }
+
+    public void setChildren(List<Component> children) {
+        this.children = children;
+    }
+
+    public Component getObject() throws Exception {
+        if (this.children != null && this.children.size() > 0) {
+            for (Component child : children) {
+                this.parent.addComponent(child);
+            }
+        }
+        return this.parent;
+    }
+
+    public Class<Component> getObjectType() {
+        return Component.class;
+    }
+
+    public boolean isSingleton() {
+        return true;
+    }
+
+}
+```
+
+This is all very well, and does work nicely, but exposes a lot of Spring plumbing to the end user. What we are going to do is write a custom extension that hides away all of this Spring plumbing. If we stick to [the steps described previously](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#xsd-custom-introduction), we’ll start off by creating the XSD schema to define the structure of our custom tag.
+
+```
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+
+<xsd:schema xmlns="http://www.foo.com/schema/component"
+        xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+        targetNamespace="http://www.foo.com/schema/component"
+        elementFormDefault="qualified"
+        attributeFormDefault="unqualified">
+
+    <xsd:element name="component">
+        <xsd:complexType>
+            <xsd:choice minOccurs="0" maxOccurs="unbounded">
+                <xsd:element ref="component"/>
+            </xsd:choice>
+            <xsd:attribute name="id" type="xsd:ID"/>
+            <xsd:attribute name="name" use="required" type="xsd:string"/>
+        </xsd:complexType>
+    </xsd:element>
+
+</xsd:schema>
+```
+
+We’ll then create a custom `NamespaceHandler`.
+
+```
+package com.foo;
+
+import org.springframework.beans.factory.xml.NamespaceHandlerSupport;
+
+public class ComponentNamespaceHandler extends NamespaceHandlerSupport {
+
+    public void init() {
+        registerBeanDefinitionParser("component", new ComponentBeanDefinitionParser());
+    }
+
+}
+```
+
+Next up is the custom `BeanDefinitionParser`. Remember that what we are creating is a `BeanDefinition` describing a `ComponentFactoryBean`.
+
+```
+package com.foo;
+
+import org.springframework.beans.factory.config.BeanDefinition;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.support.ManagedList;
+import org.springframework.beans.factory.xml.AbstractBeanDefinitionParser;
+import org.springframework.beans.factory.xml.ParserContext;
+import org.springframework.util.xml.DomUtils;
+import org.w3c.dom.Element;
+
+import java.util.List;
+
+public class ComponentBeanDefinitionParser extends AbstractBeanDefinitionParser {
+
+    protected AbstractBeanDefinition parseInternal(Element element, ParserContext parserContext) {
+        return parseComponentElement(element);
+    }
+
+    private static AbstractBeanDefinition parseComponentElement(Element element) {
+        BeanDefinitionBuilder factory = BeanDefinitionBuilder.rootBeanDefinition(ComponentFactoryBean.class);
+        factory.addPropertyValue("parent", parseComponent(element));
+
+        List<Element> childElements = DomUtils.getChildElementsByTagName(element, "component");
+        if (childElements != null && childElements.size() > 0) {
+            parseChildComponents(childElements, factory);
+        }
+
+        return factory.getBeanDefinition();
+    }
+
+    private static BeanDefinition parseComponent(Element element) {
+        BeanDefinitionBuilder component = BeanDefinitionBuilder.rootBeanDefinition(Component.class);
+        component.addPropertyValue("name", element.getAttribute("name"));
+        return component.getBeanDefinition();
+    }
+
+    private static void parseChildComponents(List<Element> childElements, BeanDefinitionBuilder factory) {
+        ManagedList<BeanDefinition> children = new ManagedList<BeanDefinition>(childElements.size());
+        for (Element element : childElements) {
+            children.add(parseComponentElement(element));
+        }
+        factory.addPropertyValue("children", children);
+    }
+
+}
+```
+
+Lastly, the various artifacts need to be registered with the Spring XML infrastructure.
+
+```
+# in 'META-INF/spring.handlers'
+http\://www.foo.com/schema/component=com.foo.ComponentNamespaceHandler
+```
+
+```
+# in 'META-INF/spring.schemas'
+http\://www.foo.com/schema/component/component.xsd=com/foo/component.xsd
+```
+
+##### Custom attributes on 'normal' elements
+
+Writing your own custom parser and the associated artifacts isn’t hard, but sometimes it is not the right thing to do. Consider the scenario where you need to add metadata to already existing bean definitions. In this case you certainly don’t want to have to go off and write your own entire custom extension; rather you just want to add an additional attribute to the existing bean definition element.
+
+By way of another example, let’s say that the service class that you are defining a bean definition for a service object that will (unknown to it) be accessing a clustered [JCache](https://jcp.org/en/jsr/detail?id=107), and you want to ensure that the named JCache instance is eagerly started within the surrounding cluster:
+
+```
+<bean id="checkingAccountService" class="com.foo.DefaultCheckingAccountService"
+        jcache:cache-name="checking.account">
+    <!-- other dependencies here... -->
+</bean>
+```
+
+What we are going to do here is create another `BeanDefinition` when the `'jcache:cache-name'` attribute is parsed; this `BeanDefinition` will then initialize the named JCache for us. We will also modify the existing `BeanDefinition` for the`'checkingAccountService'` so that it will have a dependency on this new JCache-initializing `BeanDefinition`.
+
+```
+package com.foo;
+
+public class JCacheInitializer {
+
+    private String name;
+
+    public JCacheInitializer(String name) {
+        this.name = name;
+    }
+
+    public void initialize() {
+        // lots of JCache API calls to initialize the named cache...
+    }
+
+}
+```
+
+Now onto the custom extension. Firstly, the authoring of the XSD schema describing the custom attribute (quite easy in this case).
+
+```
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+
+<xsd:schema xmlns="http://www.foo.com/schema/jcache"
+        xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+        targetNamespace="http://www.foo.com/schema/jcache"
+        elementFormDefault="qualified">
+
+    <xsd:attribute name="cache-name" type="xsd:string"/>
+
+</xsd:schema>
+```
+
+Next, the associated `NamespaceHandler`.
+
+```
+package com.foo;
+
+import org.springframework.beans.factory.xml.NamespaceHandlerSupport;
+
+public class JCacheNamespaceHandler extends NamespaceHandlerSupport {
+
+    public void init() {
+        super.registerBeanDefinitionDecoratorForAttribute("cache-name",
+            new JCacheInitializingBeanDefinitionDecorator());
+    }
+
+}
+```
+
+Next, the parser. Note that in this case, because we are going to be parsing an XML attribute, we write a `BeanDefinitionDecorator` rather than a `BeanDefinitionParser`.
+
+```
+package com.foo;
+
+import org.springframework.beans.factory.config.BeanDefinitionHolder;
+import org.springframework.beans.factory.support.AbstractBeanDefinition;
+import org.springframework.beans.factory.support.BeanDefinitionBuilder;
+import org.springframework.beans.factory.xml.BeanDefinitionDecorator;
+import org.springframework.beans.factory.xml.ParserContext;
+import org.w3c.dom.Attr;
+import org.w3c.dom.Node;
+
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
+public class JCacheInitializingBeanDefinitionDecorator implements BeanDefinitionDecorator {
+
+    private static final String[] EMPTY_STRING_ARRAY = new String[0];
+
+    public BeanDefinitionHolder decorate(Node source, BeanDefinitionHolder holder,
+            ParserContext ctx) {
+        String initializerBeanName = registerJCacheInitializer(source, ctx);
+        createDependencyOnJCacheInitializer(holder, initializerBeanName);
+        return holder;
+    }
+
+    private void createDependencyOnJCacheInitializer(BeanDefinitionHolder holder,
+            String initializerBeanName) {
+        AbstractBeanDefinition definition = ((AbstractBeanDefinition) holder.getBeanDefinition());
+        String[] dependsOn = definition.getDependsOn();
+        if (dependsOn == null) {
+            dependsOn = new String[]{initializerBeanName};
+        } else {
+            List dependencies = new ArrayList(Arrays.asList(dependsOn));
+            dependencies.add(initializerBeanName);
+            dependsOn = (String[]) dependencies.toArray(EMPTY_STRING_ARRAY);
+        }
+        definition.setDependsOn(dependsOn);
+    }
+
+    private String registerJCacheInitializer(Node source, ParserContext ctx) {
+        String cacheName = ((Attr) source).getValue();
+        String beanName = cacheName + "-initializer";
+        if (!ctx.getRegistry().containsBeanDefinition(beanName)) {
+            BeanDefinitionBuilder initializer = BeanDefinitionBuilder.rootBeanDefinition(JCacheInitializer.class);
+            initializer.addConstructorArg(cacheName);
+            ctx.getRegistry().registerBeanDefinition(beanName, initializer.getBeanDefinition());
+        }
+        return beanName;
+    }
+
+}
+```
+
+Lastly, the various artifacts need to be registered with the Spring XML infrastructure.
+
+```
+# in 'META-INF/spring.handlers'
+http\://www.foo.com/schema/jcache=com.foo.JCacheNamespaceHandler
+# in 'META-INF/spring.schemas'
+http\://www.foo.com/schema/jcache/jcache.xsd=com/foo/jcache.xsd
+```
+
