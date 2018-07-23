@@ -14,5 +14,81 @@ JDK1.0引进初步的I/O设施，用于访问文件系统（创建文件夹，�
 
 *file system*是操作系统组件管理数据储存和后续检索。运行JVM的操作系统支持至少一个文件系统。例如，Unix或Linux结合所有安装（attached and prepared)）的disks到一个虚拟文件系统。与此相反，Windows把一个分割的文件系统和每个活动的磁盘驱动器联系起来。
 
+Windows和类似的操作系统可以管理多个文件系统。 每个文件系统都用一个驱动器说明符来标识，比如`C:`。 指定一条没有驱动器说明符的路径，路径是相对于当前文件系统。
 
+一个 `java.io.File  `类实例抽象一个文件或者文件路径。这个实例提供文件系统访问来在这个path上执行任务比如移除下面的文件和文件夹。比如：
+
+```
+new File("temp").mkdir();
+```
+
+### Accessing File Content via RandomAccessFile 
+
+文件内容可以按顺序或随机访问。随机访问可以加快搜索和排序功能。在 `java. io.RandomAccessFile `类提供随机访问文件。例如：
+
+```java
+RandomAccessFile raf = new RandomAccessFile("employees.dat", "r");
+int empIndex = 10;
+raf.seek(empIndex * EMP_REC_LEN);
+// Read contents of employee record.
+
+```
+
+` employees.dat`文件被分割成固定长度的employees记录，每个记录 EMP_REC_LEN bytes长，被访问。第10个索引的employee被查找（第一个index 0）。这个任务通过seeking（设置file pointer）这个记录的第一个字节的字节位置，它处于记录长度乘索引。记录然后被访问。
+
+### Streaming Data via Stream Classes 
+
+Classic I/O 包含streams用于执行I/O操作。流是任意长度的有顺序的bytes sequence。bytes从应用的*output stream*流出到目的地，和从一个source的input stream流出到应用。
+
+![1532340528079](E:\studydyup\notes\src\pic\1532340528079.png)
+
+
+
+Java在 `java.io `包提供类用于识别用于writing的stream destinations；例如byte arrays和files。也提供类识别各种stream sources用于reading。例子包括files和 thread pipes。
+
+例如，你会用 `FileInputStream`打开一个存在的文件，并且用一个 input stream连接它。你会用各种` read() `方法通过input stream从file读取字节。最后，调用`close() `关闭stream和文件。例如：
+
+```java
+FileInputStream fis = null;
+try
+{
+ fis = new FileInputStream("image.jpg");
+ // Read bytes from file.
+ int _byte;
+ while ((_byte = fis.read()) != -1) // -1 signifies EOF
+ ; // Process _byte in some way.
+}
+catch (IOException ioe)
+{
+ // Handle exception.
+}
+finally
+{
+ if (fis != null)
+ try
+ {
+ fis.close();
+ }
+}
+
+```
+
+这个例子展示了打开文件一个文件的传统方法且创建一个输入流从文件中读取字节。然后它继续读取文件的内容。异常处理程序负责处理抛出的异常，由`java.io.IOException`表示。
+
+不管有没有抛出异常，输入流和之下的文件必须关闭。这个动作发生在try声明的finally块。因为关闭文件的冗长，你可以选择用JDK 7的try-with-resources陈述来自动关闭，如下：
+
+```
+try (FileInputStream fis = new FileInputStream("image.jpg"))
+{
+ // Read bytes from file.
+ int _byte;
+ while ((_byte = fis.read()) != -1) // -1 signifies EOF
+ ; // Process _byte in some way.
+}
+catch (IOException ioe)
+{
+ // Handle exception.
+}
+
+```
 
