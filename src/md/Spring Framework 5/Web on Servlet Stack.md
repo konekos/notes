@@ -753,3 +753,266 @@ For the full details see `AntPatternComparator` in `AntPathMatcher` and also
 
 ##### Suffix match
 
+##### Suffix match and RFD
+
+Check [CVE-2015-5211](https://pivotal.io/security/cve-2015-5211) for additional recommendations related to RFD.
+
+##### Consumable media types
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-requestmapping-consumes)
+
+You can narrow the request mapping based on the `Content-Type` of the request:
+
+```
+@PostMapping(path = "/pets", consumes = "application/json")
+public void addPet(@RequestBody Pet pet) {
+    // ...
+}
+```
+
+The consumes attribute also supports negation expressions — e.g. `!text/plain` means any content type other than "text/plain". 
+
+您可以在类级别声明共享消费属性。与大多数其他请求映射属性不同的是，当在类级别使用时，方法级消耗属性将覆盖类级别声明。 
+
+MediaType为常用的媒体类型提供常量，例如`APPLICATION_JSON_VALUE`, `APPLICATION_XML_VALUE`. 
+
+##### Producible media types
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-requestmapping-produces)
+
+You can narrow the request mapping based on the `Accept` request header and the list of content types that a controller method produces:
+
+```
+@GetMapping(path = "/pets/{petId}", produces = "application/json;charset=UTF-8")
+@ResponseBody
+public Pet getPet(@PathVariable String petId) {
+    // ...
+}
+```
+
+媒体类型可以指定一个字符集。 支持否定表达： e.g. `!text/plain` means any content type other than "text/plain". 
+
+**对于JSON内容类型，即使RFC7159清楚地声明“没有为这个注册定义charset参数”，也应该指定UTF-8 charset，因为有些浏览器需要它来正确地解释UTF-8特殊字符。** 
+
+##### Parameters, headers
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-requestmapping-params-and-headers)
+
+您可以根据请求参数条件缩小请求映射。 您可以测试请求参数`（“myParam”）`的存在 ,或者不存在(`"!myParam"`) ，或指定值 (`"myParam=myValue"`): 
+
+```
+@GetMapping(path = "/pets/{petId}", params = "myParam=myValue")
+public void findPet(@PathVariable String petId) {
+    // ...
+}
+```
+
+您还可以使用相同的请求头条件： 
+
+```
+@GetMapping(path = "/pets", headers = "myHeader=myValue")
+public void findPet(@PathVariable String petId) {
+    // ...
+}
+```
+
+你可以用header 条件匹配`Content-Type` and `Accept`  ，但最好使用use [consumes](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-requestmapping-consumes) and [produces](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-requestmapping-produces) 。
+
+##### HTTP HEAD, OPTIONS
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-requestmapping-head-options)
+
+`@GetMapping` 和`@RequestMapping(method=HttpMethod.GET)`，支持HTTP头部透明地进行请求映射。Controller方法不需要改变。一个response wrapper，被应用在`javax.servlet.http.HttpServlet`，确保`"Content-Length"` header 被设置写入的字节数，而不需要实际写入响应。 
+
+`@GetMapping` 和 `@RequestMapping(method=HttpMethod.GET)` ，隐式映射到并支持HTTP HEAD。 一个HTTP HEAD请求被处理，就好像它是HTTP GET一样，但是不是写body，而是计算字节数和 "Content-Length" header set。 
+
+默认下，HTTP OPTIONS通过设置"Allow"响应头到列出在所有带有URL pattern的`@RequestMapping` 方法HTTP methods的list。
+
+对于`@RequestMapping`没有HTTP方法声明， "Allow"头被设置为"GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS" 。Controller方法应该总是声明支持的HTTP方法，例如使用变体—— `@GetMapping`, `@PostMapping`, etc。
+
+`@RequestMapping`方法可以被显式映射到HTTP HEAD and HTTP OPTIONS ，但一般情况没必要。
+
+##### Custom Annotations
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#mvc-ann-requestmapping-head-options)
+
+spring mvc对 request mapping 支持 [composed annotations](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#beans-meta-annotations) 。
+
+#### 1.4.3. Handler Methods
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-methods)
+
+`@RequestMapping`  handler方法有一个灵活的签名，可以从一系列受支持的Controller方法参数和返回值中进行选择。 
+
+##### Method Arguments
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-arguments)
+
+下表列出支持的controller method arguments。任何参数都不支持Reactive types。 
+
+JDK 8的 `java.util.Optional` 作为方法参数被支持，结合注释有一个必须的属性，比如`@RequestParam`, `@RequestHeader`, etc，等价于`required=false`。
+
+| Controller method argument                                   | Description                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `WebRequest`, `NativeWebRequest`                             | Generic access to request parameters, request & session attributes, without direct use of the Servlet API. |
+| `javax.servlet.ServletRequest`, `javax.servlet.ServletResponse` | Choose any specific request or response type — e.g. `ServletRequest`, `HttpServletRequest`, or Spring’s `MultipartRequest`, `MultipartHttpServletRequest`. |
+| `javax.servlet.http.HttpSession`                             | Enforces the presence of a session. As a consequence, such an argument is never `null`. **Note:** Session access is not thread-safe. Consider setting the`RequestMappingHandlerAdapter`'s "synchronizeOnSession" flag to "true" if multiple requests are allowed to access a session concurrently. |
+| `javax.servlet.http.PushBuilder`                             | Servlet 4.0 push builder API for programmatic HTTP/2 resource pushes. Note that per Servlet spec, the injected `PushBuilder` instance can be null if the client does not support that HTTP/2 feature. |
+| `java.security.Principal`                                    | Currently authenticated user; possibly a specific `Principal` implementation class if known. |
+| `HttpMethod`                                                 | The HTTP method of the request.                              |
+| `java.util.Locale`                                           | The current request locale, determined by the most specific `LocaleResolver`available, in effect, the configured `LocaleResolver`/`LocaleContextResolver`. |
+| `java.util.TimeZone` + `java.time.ZoneId`                    | The time zone associated with the current request, as determined by a `LocaleContextResolver`. |
+| `java.io.InputStream`, `java.io.Reader`                      | For access to the raw request body as exposed by the Servlet API. |
+| `java.io.OutputStream`, `java.io.Writer`                     | For access to the raw response body as exposed by the Servlet API. |
+| `@PathVariable`                                              | For access to URI template variables. See [URI patterns](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-requestmapping-uri-templates). |
+| `@MatrixVariable`                                            | For access to name-value pairs in URI path segments. See [Matrix variables](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-matrix-variables). |
+| `@RequestParam`                                              | For access to Servlet request parameters. Parameter values are converted to the declared method argument type. See [@RequestParam](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-requestparam).Note that use of `@RequestParam` is optional, e.g. to set its attributes. See "Any other argument" further below in this table. |
+| `@RequestHeader`                                             | For access to request headers. Header values are converted to the declared method argument type. See [@RequestHeader](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-requestheader). |
+| `@CookieValue`                                               | For access to cookies. Cookies values are converted to the declared method argument type. See [@CookieValue](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-cookievalue). |
+| `@RequestBody`                                               | For access to the HTTP request body. Body content is converted to the declared method argument type using `HttpMessageConverter`s. See [@RequestBody](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-requestbody). |
+| `HttpEntity<B>`                                              | For access to request headers and body. The body is converted with `HttpMessageConverter`s. See [HttpEntity](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-httpentity). |
+| `@RequestPart`                                               | For access to a part in a "multipart/form-data" request. See [Multipart](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-multipart-forms). |
+| `java.util.Map`, `org.springframework.ui.Model`, `org.springframework.ui.ModelMap` | For access to the model that is used in HTML controllers and exposed to templates as part of view rendering. |
+| `RedirectAttributes`                                         | Specify attributes to use in case of a redirect — i.e. to be appended to the query string, and/or flash attributes to be stored temporarily until the request after redirect. See [Redirect attributes](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-redirecting-passing-data) and [Flash attributes](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-flash-attributes). |
+| `@ModelAttribute`                                            | For access to an existing attribute in the model (instantiated if not present) with data binding and validation applied. See [@ModelAttribute](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-modelattrib-method-args) as well as [Model](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-modelattrib-methods) and [DataBinder](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-initbinder).Note that use of `@ModelAttribute` is optional, e.g. to set its attributes. See "Any other argument" further below in this table. |
+| `Errors`, `BindingResult`                                    | For access to errors from validation and data binding for a command object (i.e. `@ModelAttribute` argument), or errors from the validation of an `@RequestBody` or`@RequestPart` arguments; an `Errors`, or `BindingResult` argument must be declared immediately after the validated method argument. |
+| `SessionStatus` + class-level `@SessionAttributes`           | For marking form processing complete which triggers cleanup of session attributes declared through a class-level `@SessionAttributes` annotation. See[@SessionAttributes](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-sessionattributes) for more details. |
+| `UriComponentsBuilder`                                       | For preparing a URL relative to the current request’s host, port, scheme, context path, and the literal part of the servlet mapping also taking into account `Forwarded` and `X-Forwarded-*` headers. See [URI Links](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-uri-building). |
+| `@SessionAttribute`                                          | For access to any session attribute; in contrast to model attributes stored in the session as a result of a class-level `@SessionAttributes` declaration. See[@SessionAttribute](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-sessionattribute) for more details. |
+| `@RequestAttribute`                                          | For access to request attributes. See [@RequestAttribute](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-requestattrib) for more details. |
+| Any other argument                                           | If a method argument is not matched to any of the above, by default it is resolved as an `@RequestParam` if it is a simple type, as determined by[BeanUtils#isSimpleProperty](https://docs.spring.io/spring-framework/docs/5.0.7.RELEASE/javadoc-api/org/springframework/beans/BeanUtils.html#isSimpleProperty-java.lang.Class-), or as an `@ModelAttribute` otherwise. |
+
+##### Return Values
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-return-types)
+
+下面的表格显示了受支持的controller方法返回值。 Reactive types对所有的返回值都可以支持。
+
+
+
+| Controller method return value                               | Description                                                  |
+| ------------------------------------------------------------ | ------------------------------------------------------------ |
+| `@ResponseBody`                                              | The return value is converted through `HttpMessageConverter`s and written to the response. See [@ResponseBody](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-responsebody). |
+| `HttpEntity<B>`, `ResponseEntity<B>`                         | The return value specifies the full response including HTTP headers and body be converted through `HttpMessageConverter`s and written to the response. See [ResponseEntity](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-responseentity). |
+| `HttpHeaders`                                                | For returning a response with headers and no body.           |
+| `String`                                                     | A view name to be resolved with `ViewResolver`'s and used together with the implicit model — determined through command objects and `@ModelAttribute` methods. The handler method may also programmatically enrich the model by declaring a `Model` argument (see above). |
+| `View`                                                       | A `View` instance to use for rendering together with the implicit model — determined through command objects and `@ModelAttribute` methods. The handler method may also programmatically enrich the model by declaring a `Model` argument (see above). |
+| `java.util.Map`, `org.springframework.ui.Model`              | Attributes to be added to the implicit model with the view name implicitly determined through a `RequestToViewNameTranslator`. |
+| `@ModelAttribute`                                            | An attribute to be added to the model with the view name implicitly determined through a `RequestToViewNameTranslator`.Note that `@ModelAttribute` is optional. See "Any other return value" further below in this table. |
+| `ModelAndView` object                                        | The view and model attributes to use, and optionally a response status. |
+| `void`                                                       | A method with a `void` return type (or `null` return value) is considered to have fully handled the response if it also has a `ServletResponse`, or an `OutputStream` argument, or an `@ResponseStatus` annotation. The same is true also if the controller has made a positive ETag or lastModified timestamp check (see [Controllers](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-caching-etag-lastmodified) for details).If none of the above is true, a `void` return type may also indicate "no response body" for REST controllers, or default view name selection for HTML controllers. |
+| `DeferredResult<V>`                                          | Produce any of the above return values asynchronously from any thread — e.g. possibly as a result of some event or callback. See [Async Requests](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async) and[`DeferredResult`](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async-deferredresult). |
+| `Callable<V>`                                                | Produce any of the above return values asynchronously in a Spring MVC managed thread. See [Async Requests](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async) and [`Callable`](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async-callable). |
+| `ListenableFuture<V>`,`java.util.concurrent.CompletionStage<V>`,`java.util.concurrent.CompletableFuture<V>` | Alternative to `DeferredResult` as a convenience for example when an underlying service returns one of those. |
+| `ResponseBodyEmitter`, `SseEmitter`                          | Emit a stream of objects asynchronously to be written to the response with`HttpMessageConverter`'s; also supported as the body of a `ResponseEntity`. See [Async Requests](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async) and [HTTP Streaming](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async-http-streaming). |
+| `StreamingResponseBody`                                      | Write to the response `OutputStream` asynchronously; also supported as the body of a `ResponseEntity`. See [Async Requests](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async) and [HTTP Streaming](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async-http-streaming). |
+| Reactive types — Reactor, RxJava, or others via `ReactiveAdapterRegistry` | Alternative to `DeferredResult` with multi-value streams (e.g. `Flux`, `Observable`) collected to a `List`.For streaming scenarios — e.g. `text/event-stream`, `application/json+stream` —  `SseEmitter` and `ResponseBodyEmitter` are used instead, where `ServletOutputStream` blocking I/O is performed on a Spring MVC managed thread and back pressure applied against the completion of each write.See [Async Requests](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async) and [Reactive types](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-async-reactive-types). |
+| Any other return value                                       | If a return value is not matched to any of the above, by default it is treated as a view name, if it is `String` or `void` (default view name selection via`RequestToViewNameTranslator` applies); or as a model attribute to be added to the model, unless it is a simple type, as determined by[BeanUtils#isSimpleProperty](https://docs.spring.io/spring-framework/docs/5.0.7.RELEASE/javadoc-api/org/springframework/beans/BeanUtils.html#isSimpleProperty-java.lang.Class-) in which case it remains unresolved. |
+
+##### Type Conversion
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-typeconversion)
+
+一些被注解的Controller方法参数表明了String-based的请求输入——例如 `@RequestParam`, `@RequestHeader`, `@PathVariable`, `@MatrixVariable`, and `@CookieValue`，如果将参数声明为除字符串以外的其他东西，则需要类型转换。 
+
+对于这种情况，类型转换是根据配置的转换器自动应用的。 默认情况下，支持诸如int、long、Date等简单类型。类型转换可以通过`WebDataBinder`进行定制 ，see [DataBinder](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-initbinder) ，或通过`FormattingConversionService`注册`Formatters`， see [Spring Field Formatting](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/core.html#format)。
+
+##### Matrix variables
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-matrix-variables)
+
+[RFC 3986](https://tools.ietf.org/html/rfc3986#section-3.3) 讨论了在path片段上的键值对。在spring mvc我们称之为"matrix variables"，基于 Tim Berners-Lee 提出的 an ["old post"](https://www.w3.org/DesignIssues/MatrixURIs.html) ，但它们也可以被称为URI path parameters 。
+
+Matrix变量可以出现在任何path片段，每个变量由分号分隔，多个值由逗号分隔。例如，`"/cars;color=red,green;year=2012"`。多个值也可以通过多个重复变量名来指定，比如`"color=red;color=green;color=blue"`。
+
+如果一个URL期望包含 matrix variables，controller方法的request mapping，必须使用一个URI variable来mask variable content并且确保请求能够独立于matrix variable order and presence而成功匹配。下面是例子：
+
+```
+// GET /pets/42;q=11;r=22
+
+@GetMapping("/pets/{petId}")
+public void findPet(@PathVariable String petId, @MatrixVariable int q) {
+
+    // petId == 42
+    // q == 11
+}
+```
+
+考虑到所有的路径段可能包含矩阵变量，有时你需要消除歧义，matrix变量期望在哪个path片段，例如：
+
+```
+// GET /owners/42;q=11/pets/21;q=22
+
+@GetMapping("/owners/{ownerId}/pets/{petId}")
+public void findPet(
+        @MatrixVariable(name="q", pathVar="ownerId") int q1,
+        @MatrixVariable(name="q", pathVar="petId") int q2) {
+
+    // q1 == 11
+    // q2 == 22
+}
+```
+
+一个matrix变量可以定义成optional和指定默认值：
+
+```
+// GET /pets/42
+
+@GetMapping("/pets/{petId}")
+public void findPet(@MatrixVariable(required=false, defaultValue="1") int q) {
+
+    // q == 1
+}
+```
+
+得到所有matrix variables，使用`MultiValueMap`：
+
+```
+// GET /owners/42;q=11;r=12/pets/21;q=22;s=23
+
+@GetMapping("/owners/{ownerId}/pets/{petId}")
+public void findPet(
+        @MatrixVariable MultiValueMap<String, String> matrixVars,
+        @MatrixVariable(pathVar="petId") MultiValueMap<String, String> petMatrixVars) {
+
+    // matrixVars: ["q" : [11,22], "r" : 12, "s" : 23]
+    // petMatrixVars: ["q" : 22, "s" : 23]
+}
+```
+
+注意，您需要启用矩阵变量。 在MVC Java config ， 你需要通过 [Path Matching](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-config-path-matching)设置`UrlPathHelper` 的`removeSemicolonContent=false` 。在 MVC XML namespace ，使用`<mvc:annotation-driven enable-matrix-variables="true"/>`。
+
+##### @RequestParam
+
+[Same in Spring WebFlux](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web-reactive.html#webflux-ann-requestparam) 
+
+使用`@RequestParam`  把Servlet request parameters 绑定到controller方法参数。
+
+下面的代码片段显示了用法： 
+
+```
+@Controller
+@RequestMapping("/pets")
+public class EditPetForm {
+
+    // ...
+
+    @GetMapping
+    public String setupForm(@RequestParam("petId") int petId, Model model) {
+        Pet pet = this.clinic.loadPet(petId);
+        model.addAttribute("pet", pet);
+        return "petForm";
+    }
+
+    // ...
+
+}
+```
+
+方法参数使用整个注解默认是required的，但是你可以设置为optional通过`required=false`或者用`java.util.Optional`包装来声明参数。
+
+如果目标方法参数类型不是字符串，类型转换就会自动应用。 See [Type Conversion](https://docs.spring.io/spring/docs/5.0.7.RELEASE/spring-framework-reference/web.html#mvc-ann-typeconversion). 
+
+当 `@RequestParam` 被声明为 `Map<String, String>` 或`MultiValueMap<String, String>` 参数，map填充了所有的请求参数。 
+
+注意 `@RequestParam` 的使用是optional，例如设置它的属性。默认任何参数是简单值类型，如 [BeanUtils#isSimpleProperty](https://docs.spring.io/spring-framework/docs/5.0.7.RELEASE/javadoc-api/org/springframework/beans/BeanUtils.html#isSimpleProperty-java.lang.Class-) 决定，并没有被任何其他的参数解析器解决，就像用@requestparam注释一样。 
