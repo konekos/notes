@@ -92,3 +92,30 @@ catch (IOException ioe)
 
 ```
 
+一些stream类用于过滤其他stream。例如，为了提升性能，` BufferedInputStream `从其他stream读取一块bytes，从它的buffer返回字节直到buffer空为止，然后读取另一块。例如：
+
+```java
+try (FileInputStream fis = new FileInputStream("image.jpg");
+ BufferedInputStream bis = new BufferedInputStream(fis))
+{
+ // Read bytes from file.
+ int _byte;
+ while ((_byte = bis.read()) != -1) // -1 signifies EOF
+ ; // Process _byte in some way.
+}
+catch (IOException ioe)
+{
+ // Handle exception.
+}
+
+```
+
+从`image.jpg `读取的 file input stream被创建。这个stream被转换成buffered输入流构造器。随后的读在buffered input stream上执行，它在合适时候调用file input stream的`read()`。
+
+### Stream Classes and Standard I/O 
+
+很多操作系统支持标准I/O， preconnected streams被称为 standard input, standard output, and standard error。
+
+标准输入默认从键盘输入。然而，也可以重定向从不同的源读输出到不同的目的地，比如文件。
+
+JDK 1.0引入标准I/O支持通过添加in, out, and err objects of type InputStream and PrintStream到`java.lang.System `类。你指定调用这些对象的方法
