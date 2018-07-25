@@ -118,4 +118,39 @@ catch (IOException ioe)
 
 标准输入默认从键盘输入。然而，也可以重定向从不同的源读输出到不同的目的地，比如文件。
 
-JDK 1.0引入标准I/O支持通过添加in, out, and err objects of type InputStream and PrintStream到`java.lang.System `类。你指定调用这些对象的方法
+JDK 1.0引入标准I/O支持通过添加InputStream and PrintStream类型的in, out, and err o对象到`java.lang.System `类。你指定调用这些对象的方法来连接标准输入输出和error，如下：
+
+```
+int ch = System.in.read(); // Read single character from standard input.
+System.out.println("Hello"); // Write string to standard output.
+System.err.println("I/O error: " +
+ ioe.getMessage()); // Write string to standard error.
+```
+
+### JDK 1.1 and the Writer/Reader Classes 
+
+JDK 1.0的I/O适合字节流，但不适合字符流因为不考虑字符编码。JDK 1.1引入了 writer/reader类克服这个问题，把字符编码考虑了在内。例如`java.io `包含有`s FileWriter and FileReader `类用于读写字符流。
+
+### NIO 
+
+现代操作系统提供精致的I/O服务（比如readiness selection）用于提升I/O性能与简化I/O。 Java Specification Request (JSR) 51  (www.jcp.org/en/jsr/detail?id=51) 被创建用于落地这个特性。
+
+JSR 51的描述表明提供了APIs用于可伸缩I/O， fast buffered binary and character I/O ，正则表达式和字符集转换。这些APIs就是NIO。JDK1.4在以下APIs方面实现NIO：
+
+- Buffers
+- Channels
+- Selectors
+- Regular expression
+- Charsets
+
+regular expression and charset APIs被提供给简化常规与I/O有联系的tasks。
+
+### Buffers 
+
+Buffers（缓冲区）是NIO操作的基础。本质上，NIO全部都是关于把数据从Buffers移入或移出。
+
+一个过程比如JVM执行I/O通过请求操作系统去排干buffer的内容来通过写操作存储。类似地，它请求操作系统用从存储设备读取的数据填充buffer。
+
+考虑一个涉及磁盘驱动的读操作。操作系统发出一个指令到磁盘controller来读取磁盘的一块字节到一个操作系统的buffer。一旦操作完成，操作系统复制这个buffer contents到发生`read()`操作的指定的buffer。
+
+![1532487035762](https://github.com/konekos/notes/blob/master/src/pic/1532487035762.png)
