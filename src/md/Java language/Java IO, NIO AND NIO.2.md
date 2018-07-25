@@ -40,9 +40,7 @@ raf.seek(empIndex * EMP_REC_LEN);
 
 Classic I/O 包含streams用于执行I/O操作。流是任意长度的有顺序的bytes sequence。bytes从应用的*output stream*流出到目的地，和从一个source的input stream流出到应用。
 
-![1532340528079](E:\studydyup\notes\src\pic\1532340528079.png)
-
-
+![1532340528079](https://github.com/konekos/notes/blob/master/src/pic/1532340528079.png)
 
 Java在 `java.io `包提供类用于识别用于writing的stream destinations；例如byte arrays和files。也提供类识别各种stream sources用于reading。例子包括files和 thread pipes。
 
