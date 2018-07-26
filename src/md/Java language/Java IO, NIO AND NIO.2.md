@@ -422,3 +422,212 @@ public class FileDirectoryInfo
 
 ```
 
+编译`javac FileDirectoryInfo.java `
+
+run `java FileDirectoryInfo x.dat `
+
+假设` x.dat ` 3个字节大。
+
+输出：
+
+```
+About x.dat:
+Exists = true
+Is directory = false
+Is file = true
+Is hidden = false
+Last modified = Sat Jul 25 15:49:41 CDT 2015
+Length = 3
+```
+
+#### Listing File System Root Directories 
+
+File的方法`File[] listRoots()  `返回root文件夹。
+
+**注意**： available file system roots的集合受系统级别操作影响，比如插入或拔出媒体，断开或卸载物理或虚拟磁盘驱动器。
+
+***Listing 2-3. Dumping Available File System Roots to Standard Output*** 
+
+```java
+public class DumpRoots
+{
+ public static void main(String[] args)
+ {
+ File[] roots = File.listRoots();
+ for (File root: roots)
+ System.out.println(root);
+ }
+}
+
+```
+
+编译&运行，输出：
+
+Win 7 
+
+```
+C:\
+D:\
+E:\
+F:\
+```
+
+Linux 
+
+```
+/
+```
+
+#### Obtaining Disk Space Information 
+
+一个 *partition* (分区)对于文件系统是系统特定的储存的一部分。获得分区空闲的空间大小很重要。在Java 6之前，唯一简便的方式来完成这个事情是通过创建不同大小的文件来猜。
+
+Java 6添加了File类的` long getFreeSpace(), long getTotalSpace()`和 `long getUsableSpace()  `方法，返回File分区空间信息，由File实例的abstract path描述：
+
+- long getFreeSpace()  返回File对象abstract path鉴定的分区的未分配字节数。
+- long getTotalSpace() 返回File对象abstract path鉴定的分区的size；当abstract path没有命名分区返回0。
+- long getUsableSpace() 返回File对象abstract path鉴定的分区对当前JVM可用的字节数；当abstract path没有命名分区返回0。
+
+虽然 `getFreeSpace() `和` getUsableSpace() `似乎相等，他们在以下方面不同：不像`getFreeSpace()`， `getUsableSpace() `检查写权限和其他的操作系统限制，得出一个更准确的估计。
+
+**注意**： `getFreeSpace()` and` getUsableSpace()` 方法返回一个Java应用可以使用可用或未分配空间的提示（不是保证）。因为JVM外面的程序也能用分区空间，导致实际未分配或可用空间比返回值要小。
+
+***Listing 2-4. Outputting the Free, Usable, and Total Space on All Partitions*** 
+
+```java
+import java.io.File;
+public class PartitionSpace
+{
+ public static void main(String[] args)
+ {
+ File[] roots = File.listRoots();
+ for (File root: roots)
+ {
+ System.out.println("Partition: " + root);
+ System.out.println("Free space on this partition = " +
+ root.getFreeSpace());
+ System.out.println("Usable space on this partition = " +
+ root.getUsableSpace());
+ System.out.println("Total space on this partition = " +
+ root.getTotalSpace());
+ System.out.println("***");
+ }
+ }
+}
+
+```
+
+编译运行，输出（Win 7）：
+
+```
+Partition: C:\
+Free space on this partition = 143271129088
+Usable space on this partition = 143271129088
+Total space on this partition = 499808989184
+***
+Partition: D:\
+Free space on this partition = 0
+Usable space on this partition = 0
+Total space on this partition = 0
+***
+Partition: E:\
+Free space on this partition = 733418569728
+Usable space on this partition = 733418569728
+Total space on this partition = 1000169533440
+***
+Partition: F:\
+Free space on this partition = 33728192512
+Usable space on this partition = 33728192512
+Total space on this partition = 64021835776
+***
+```
+
+#### Listing Directories 
+
+File声明了5个方法返回位于文件夹里的file和文件夹。
+
+***Table 2-3. File Methods for Obtaining Directory Content*** 
+
+| Method                                  | Description                                                  |
+| --------------------------------------- | ------------------------------------------------------------ |
+| String[] list()                         | 路径不表示目录或者发生I/O错误，返回null。否则返回strings数组 |
+| String[]list(FilenameFilter   filter)   | 只返回符合filter的Strings                                    |
+| File[] listFiles()                      | 把Strings数组转换为Files数组返回                             |
+| File[] listFiles(FileFilter filter)     | 返回符合filter的File数组                                     |
+| File[] listFiles(FilenameFilter filter) | 返回符合filter的File数组                                     |
+
+`FilenameFilter`接口声明一个` boolean accept(File dir, String name) `方法。`dir`是path的parent部分（文件夹path），`name`是最后的文件夹的name或者这个path最后的文件名。
+
+`accept()`使用参数决定是否符合规则，返回true就会在数组里包含。
+
+***Listing 2-5. Listing Specific Names*** 
+
+```java
+import java.io.File;
+import java.io.FilenameFilter;
+public class Dir
+{
+ public static void main(final String[] args)
+ {
+ if (args.length != 2)
+ {
+ System.err.println("usage: java Dir dirpath ext");
+ return;
+ }
+ File file = new File(args[0]);
+ FilenameFilter fnf = new FilenameFilter()
+ {
+ @Override
+ public boolean accept(File dir, String name)
+ {
+ return name.endsWith(args[1]);
+ }
+ };
+ String[] names = file.list(fnf);
+ for (String name: names)
+ System.out.println(name);
+ }
+}
+
+```
+
+编译运行：`java Dir C:\windows exe `输出：
+
+```
+bfsvc.exe
+explorer.exe
+fveupdate.exe
+HelpPane.exe
+hh.exe
+IsUninst.exe
+kindlegen.exe
+notepad.exe
+regedit.exe
+splwow64.exe
+twunk_16.exe
+twunk_32.exe
+winhlp32.exe
+write.exe
+
+```
+
+`listFiles(FileFilter) `引入不对称。
+
+`java.io.FileFilter `声明一个`accept(String path)`方法，参数是完整的path。
+
+**注意**：如果想有目录和文件夹分隔的path，用` FilenameFilter `；要使用完整的路径，用`getParent() `and `getName() `。
+
+#### Creating/Modifying Files and Directories 
+
+File也提供了创建文件，文件夹，和修改存在的文件文件夹。
+
+***Table 2-4. File Methods for Creating New and Manipulating Existing Files and Directories*** 
+
+| Method                             | Description                                                  |
+| ---------------------------------- | ------------------------------------------------------------ |
+| boolean mkdir()                    | 创建文件夹；成功返回true。                                   |
+| boolean mkdirs()                   | 层级创建。成功返回true。                                     |
+| boolean renameTo(File dest)        | dest是null抛出空指针异常。成功为true。方法行为很多取决于操作系统。例如， rename 方法可能不能够把文件从一个文件系统移到另一个，可能不是原子操作，目标存在时，可能不成功。返回值一定要检查，看是否成功。 |
+| boolean setLastModified(long time) | 设置上次修改的时间。成功为true。time是负数抛出`  IllegalArgumentException `。时间可能会被 truncated。 |
+
+假设你想写一个，可以有临时文件去保存快照的程序。使用`createTempFile()`创建临时文件。如果你没有指定储存路径，会保存到系统属性` java.io.tmpdir  `。
