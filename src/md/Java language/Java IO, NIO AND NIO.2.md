@@ -1141,3 +1141,42 @@ output stream类结构层次图：
 input stream类结构层次图：
 
 ![1532686025994](https://github.com/konekos/notes/blob/master/src/pic/1532686025994.png?raw=true)
+
+`LineNumberInputStream and StringBufferInputStream `已被弃用，因为不支持不同的字符编码， 在Chapter 5 讨论代替它们的`java.io.LineNumberReader and java.io.StringReader `。
+
+**注意**：`PrintStream`是另一个因为不支持不同编码而应该被弃用的类；`java.io.PrintWriter `是替代。然而，Oracle弃用这个类是存疑的，因为`PrintStream `是`java.lang.System class’s out and err class fields `类型，而且太多的遗留代码依赖于它。
+
+其他Java包提供另外的 output stream and input stream类。例如，` java.util.zip `提供4个输出流类将未压缩的数据压缩成各种格式，以及4个对应的输入流从相同的数据格式中解压压缩数据。
+
+- CheckedOutputStream 
+- CheckedInputStream 
+- DeflaterOutputStream 
+- GZIPOutputStream 
+- GZIPInputStream 
+- InflaterInputStream 
+- ZipOutputStream 
+- ZipInputStream 
+
+同时，`java.util.jar `提供一对流类用于写内容到JAR文件和读取JAR文件的内容：
+
+- JarOutputStream 
+- JarInputStream 
+
+#### Touring the Stream Classes 
+
+下面开始 java.io’s output stream and input stream classes 的tour，从OutputStream and InputStream 开始。
+
+##### OutputStream and InputStream 
+
+Java提供抽象的` OutputStream and InputStream `类描述I/O流。`OutputStream `是所有output stream的超类。
+
+***Table 4-1. OutputStream Methods*** 
+
+| Method       | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| void close() | 关流和释放任何和流有关的操作系统资源。I/O错误发生抛出` java.io.IOException `。 |
+| void flush() |                                                              |
+|              |                                                              |
+|              |                                                              |
+|              |                                                              |
+
