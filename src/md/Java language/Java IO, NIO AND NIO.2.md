@@ -630,4 +630,238 @@ File也提供了创建文件，文件夹，和修改存在的文件文件夹。
 | boolean renameTo(File dest)        | dest是null抛出空指针异常。成功为true。方法行为很多取决于操作系统。例如， rename 方法可能不能够把文件从一个文件系统移到另一个，可能不是原子操作，目标存在时，可能不成功。返回值一定要检查，看是否成功。 |
 | boolean setLastModified(long time) | 设置上次修改的时间。成功为true。time是负数抛出`  IllegalArgumentException `。时间可能会被 truncated。 |
 
-假设你想写一个，可以有临时文件去保存快照的程序。使用`createTempFile()`创建临时文件。如果你没有指定储存路径，会保存到系统属性` java.io.tmpdir  `。
+假设你想写一个，可以有临时文件去保存快照的程序。使用`createTempFile()`创建临时文件。如果你没有指定储存路径，会保存到系统属性` java.io.tmpdir  `。你可能想移除临时文件，`deleteOnExit() `方法，在JVM没有崩溃或断电退出时删除临时文件。
+
+***Listing 2-6. Experimenting with Temporary Files*** 
+
+```java
+import java.io.File;
+import java.io.IOException;
+public class TempFileDemo
+{
+ public static void main(String[] args) throws IOException
+ {
+ System.out.println(System.getProperty("java.io.tmpdir"));
+ File temp = File.createTempFile("text", ".txt");
+ System.out.println(temp);
+ temp.deleteOnExit();
+ }
+}
+```
+
+#### Setting and Getting Permissions 
+
+Java 1.2添加` boolean setReadOnly()  `方法到File，标记一个文件或文件夹为只读。然而恢复可写状态的方法没有。更重要的是，在Java 6之前， File没有办法管理抽象路径的读、写和执行权限。
+
+Java 6添加之下方法：
+
+- boolean setExecutable(boolean executable, boolean ownerOnly)  false为全部用户
+- boolean setExecutable(boolean executable)  设置拥有者的执行权限
+- boolean setReadable(boolean readable, boolean ownerOnly)  
+- boolean setReadable(boolean readable) 
+- boolean setWritable(boolean writable, boolean ownerOnly) 
+- boolean setWritable(boolean writable) 
+
+除了这些方法，Java 6改造了` boolean canRead()  `和`boolean canWrite() `方法，引入` boolean canExecute() `方法返回xxx权限。
+
+***Listing 2-7. Checking a File’s or Directory’s Permissions*** 
+
+```java
+import java.io.File;
+public class Permissions
+{
+ public static void main(String[] args)
+ {
+ if (args.length != 1)
+ {
+ System.err.println("usage: java Permissions filespec");
+ return;
+ }
+ File file = new File(args[0]);
+ System.out.println("Checking permissions for " + args[0]);
+ System.out.println(" Execute = " + file.canExecute());
+ System.out.println(" Read = " + file.canRead());
+ System.out.println(" Write = " + file.canWrite());
+ }
+}
+```
+
+#### Exploring Miscellaneous Capabilities 
+
+最后，File实现`java.lang.Comparable `接口的` compareTo()`方法，重写了` equals()  `和` hashCode() `。
+
+***Table 2-5. File’s Miscellaneous Methods*** 
+
+| Method                      | Description                                                  |
+| --------------------------- | ------------------------------------------------------------ |
+| int compareTo(File path)    | 字典比较两个path。方法的排序定义取决于操作系统。对  Unix/Linux，字母排序是有意义的。windows无意义。抽象路径相同返回0。调用 getCanonicalFile() 再比较。 |
+| boolean equals(Object obj)) | 取决于操作系统。path一样。                                   |
+| int hashCode()              | 返回path 的哈希。计算取决于底层操作系统。在  Unix/Linux 等于path 字符串的哈希值异或 1234321。windows，是小写的path字符串。小写path不考虑  current locale 。 |
+
+***Listing 2-8. Comparing Files*** 
+
+```java
+import java.io.File;
+import java.io.IOException;
+public class Compare
+{
+ public static void main(String[] args) throws IOException
+ {
+ if (args.length != 2)
+ {
+ System.err.println("usage: java Compare filespec1 filespec2");
+ return;
+ }
+
+ File file1 = new File(args[0]);
+ File file2 = new File(args[1]);
+ System.out.println(file1.compareTo(file2));
+ System.out.println(file1.getCanonicalFile()
+ .compareTo(file2.getCanonicalFile()));
+ }
+}
+
+```
+
+#### exercise
+
+```
+1. What is the purpose of the File class?
+2. What do instances of the File class contain?
+3. What is a path?
+4. What is the difference between an absolute path and a relative path?
+5. How do you obtain the current user (also known as working) directory?
+6. Define parent path.
+7. File’s constructors normalize their path arguments. What does
+normalize mean?
+8. How do you obtain the default name-separator character?
+9. What is a canonical path?
+10. What is the difference between File’s getParent() and
+getName() methods?
+11. True or false: File’s exists() method only determines whether or
+not a file exists.
+12. What is a normal file?
+13. What does File’s lastModified() method return?
+14. What does File’s listRoots() method accomplish?
+15. True or false: File’s list() method returns an array of Strings
+where each entry is a file name rather than a complete path.
+16. What is the difference between the FilenameFilter and
+FileFilter interfaces?
+17. True or false: File’s createNewFile() method doesn’t check for
+file existence and create the file when it doesn’t exist in a single
+operation that’s atomic with respect to all other file system activities
+that might affect the file.
+18. File’s createTempFile(String, String) method creates a
+temporary file in the default temporary directory. How can you locate
+this directory?
+19. Temporary files should be removed when no longer needed after an
+application exits (to avoid cluttering the file system). How do you
+ensure that a temporary file is removed when the JVM ends normally
+(it doesn’t crash and the power isn’t lost)?
+20. Which one of the boolean canRead(), boolean canWrite(), and
+boolean canExecute() methods was introduced by Java 6?
+21. How would you accurately compare two File objects?
+22. Create a Java application named Touch for setting a file’s or
+directory’s timestamp to the current time. This application has the
+following usage syntax: java Touch pathname.
+```
+
+#### Summary 
+
+### Chapter 3 RandomAccessFile 
+
+File可以被创建和/或打开用于*random access* ，在文件关闭前，在多个位置可以发生混合读写操作。Java提供` java.io.RandomAccessFile `类支持这种随机访问。
+
+#### Exploring RandomAccessFile 
+
+构造器：
+
+- RandomAccessFile(File file, String mode) ：创建和打开一个不存在的文件或打开存在的文件。由abstract path确定，根据mode创建和/或打开文件。
+- RandomAccessFile(String path, String mode)：创建和打开一个不存在的文件或打开存在的文件。由path确定，根据mode创建和/或打开文件。
+
+ constructor’s mode参数必须是 `r`,`rw`,`rws`,`rwd`其中之一，否则抛出`java.lang. IllegalArgumentException `，参数意义如下：
+
+- `r`，通知构造器打开一个存在的文件只用于读。任何写的尝试抛出`java.io.IOException`。
+- `rw`，如果不存在，通知构造器创建并打开一个新的file的时候用于读写或者打开一个存在的文件用于读写。
+- `rwd`，如果不存在，通知构造器创建并打开一个新的file的时候用于读写或者打开一个存在的文件用于读写。另外，每个对于文件内容的更新必须同步写入底层储存设备。
+- `rws`如果不存在，通知构造器创建并打开一个新的file的时候用于读写或者打开一个存在的文件用于读写。另外，每个对于文件内容或者 metadata的更新必须同步写入底层储存设备。
+
+**注意**：文件的metadata是关于文件的但不是实际文件内容。metadata例如有：file的length，上次更改的时间。
+
+`rws`和`rwd`同步写入，保证了关键数据在操作系统崩溃不会丢失。当文件不在本地设备上时是不能保证的。
+
+**注意**：`rws`和`rwd`打开的文件要比`rw`模式打开的文件慢。
+
+当`r`模式path打不开的时候（不存在或是文件夹），`rw`模式的path是只读权限的时候或者是文件夹，抛出` java.io.FileNotFoundException `。
+
+```java
+RandomAccessFile raf = new RandomAccessFile("employee.dat", "r");
+```
+
+一个 random access file和一个file指针关联，一个游标指示下个要读/写的字节的位置。当一个存在文件被打开，file指针被设置为第一个字节，在offset 0 。当文件被创建时，file指针也被设为0。
+
+读写操作在文件pointer开始，并把他推进已经读或写过的字节数。写超出了文件当前末尾的操作会导致文件被扩展。操作会继续直到File关闭。
+
+`RandomAccessFile`的代表方法：
+
+***Table 3-1. RandomAccessFile Methods*** 
+
+
+
+| Method                         | Description                                                  |
+| ------------------------------ | ------------------------------------------------------------ |
+| int readInt()                  | 从文件读返回  32-bit integer。从当前file指针开始读取4个字节。 如果字节读取依次是b1 b2 b3和b4 ，`0 <= b1, b2, b3, b4 <= 255` ，结果等于 `(b1 << 24) | (b2 << 16) | (b3 << 8) | b4`. 这个方法在4个字节读完、检测到文件末尾、或抛出异常之前会阻塞。在读4个字节前到达文件末尾抛出  `EOFException `，I/O错误抛出  `IOException `。 |
+| void seek(long pos)            | 设置文件指针的当前offset（从文件开头开始用字节测量）。如果 offset 设置超出了文件尾，file的length不会变。只有通过写才行。pos是负值或者I/O错误抛出`  IOException `。 |
+| void setLength(long newLength) | 设置文件length。如果` length() `返回的比newLength大，file被 truncated。在这种情况下，如果` getFilePointer() `返回的offset比newLength大，在` setLength()  `返回后，offset会等于 newLength。如果当前长度比newLength小，文件被扩展。这种情况下，扩展部分的文件内容没有被定义。I/O错误抛出` IOException `。 |
+| int skipBytes(int n)           | 尝试跳过n个字节。 This method skips over a smaller number of bytes (possibly zero) when the end of file is reached before n bytes have been skipped。在这种情况不抛出` EOFException `。n是负数，不跳。返回实际的跳跃数。I/O错误抛出` IOException `。 |
+| void write(byte[] b)           | 从当前文件指针开始写   byte array b  的  b.length bytes。I/O错误抛出` IOException `。 |
+| void write(int b)              | 写一个更低的8 bits的 b作为一个32 bits的integer到文件从当前文件指针开始。I/O错误抛出` IOException `。 |
+| void writeChars(String s)      | 写 s 作为 characters 的序列到文件从当前文件指针开始。I/O错误抛出` IOException ` |
+| void writeInt(int i)           | 写32 bits的integer到file从当前文件指针开始。 这四个字节是先用高字节写的。I/O错误抛出` IOException ` |
+
+上面方法是不言而喻的。然而，`getFD() ` 方法需要进一步启示。
+
+**注意**：`RandomAccessFile `的read开头的方法和`skipBytes() `起源于` java.io.DataInput `接口，`RandomAccessFile`实现了它。另外，writer开头的方法源于`java.io.DataOutput `接口，也实现了这个接口。
+
+当文件被打开，底层操作系统创建一个基于操作系统的结构来代表文件。对这个结构的handle保存在`java.io.FileDescriptor `类的一个实例，` getFD()`返回这个实例。
+
+**注意**：一个handle是一个Java传递给底层操作系统来识别的标识符，在这种情况，是一个特定的打开的文件，当需要底层操作系统执行文件操作时候。
+
+`FileDescriptor `是一个小的类，声明了3个`FileDescriptor `常量叫做`in`,`out`,`error`。这三个常量使`System.in`, `System. out`, and `System.err `提供到标准输入输出错误流的访问。
+
+`FileDescriptor` 也声明以下2个方法：
+
+- void sync() 告诉底层操作系统去flush(empty)打开文件输出buffers的内容到关联的本地磁盘设备。 `sync() `返回所有修改了的数据和属性。当buffers不能被flushed或者因为操作系统不能保证所有buffers和物理媒介同步时， 抛出`java. io.SyncFailedException `。
+- boolean valid() 决定file descriptor object是不是有效的。当 file descriptor object对象表示打开的文件或活动的I/O连接返回true；否则返回false。
+
+写入到打开文件的数据被保存在底层操作系统的输出buffers。当buffers充满到了capacity（容量），操作系统清空它们到磁盘。buffers改善了性能因为磁盘访问比内存慢。
+
+然而，当你写数据到`rwd`或`rws`模式打开的 random access file，每个写操作的数据都是直接写到磁盘。结果是，写操作比`rw`模式要慢。
+
+假设一个场景，要结合通过output buffers写数据和直接写数据到磁盘。下面的例子落地了这个混合场景，用`rw`模式打开，选择性调用 `FileDescriptor`的`sync()  `方法。
+
+```java
+RandomAccessFile raf = new RandomAccessFile("employee.dat", "rw");
+FileDescriptor fd = raf.getFD();
+// Perform a critical write operation.
+raf.write(...);
+// Synchronize with the underlying disk by flushing the operating system
+// output buffers to the disk.
+fd.sync();
+// Perform a non-critical write operation where synchronization isn't
+// necessary.
+raf.write(...);
+// Do other work.
+// Close the file, emptying output buffers to the disk.
+raf.close();
+```
+
+#### Using RandomAccessFile 
+
+`RandomAccessFile `对建一个*flat file database* 很有用，一个单个文件被组织成records and fields。一个record保存单个entry（就像一个parts database的part），一个field保存entry的单个属性（就像a part number）。
+
+**注意**：term field也用于引用类中声明的变量 。为了避免和重载术语混淆，把一个field变量想象成类似于一个record field属性。
+
+ flat file database 典型地组织内容为固定长度的records序列。每个record被进一步组织成一个或多个固定长度的records。
+
+![1532677457611](https://github.com/konekos/notes/blob/master/src/pic/1532677457611.png?raw=true)
