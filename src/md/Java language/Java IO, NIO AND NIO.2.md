@@ -865,3 +865,279 @@ raf.close();
  flat file database 典型地组织内容为固定长度的records序列。每个record被进一步组织成一个或多个固定长度的records。
 
 ![1532677457611](https://github.com/konekos/notes/blob/master/src/pic/1532677457611.png?raw=true)
+
+演示用`RandomAccessFile `实现一个 flat file database：
+
+***Listing 3-1. Implementing the Parts Flat File Database*** 
+
+```java
+import java.io.IOException;
+import java.io.RandomAccessFile;
+
+public class PartsDB {
+    public final static int PNUMLEN = 20;
+    public final static int DESCLEN = 30;
+    public final static int QUANLEN = 4;
+    public final static int COSTLEN = 4;
+    private final static int RECLEN = 2 * PNUMLEN + 2 * DESCLEN + QUANLEN +
+            COSTLEN;
+    private RandomAccessFile raf;
+
+    public PartsDB(String path) throws IOException {
+        raf = new RandomAccessFile(path, "rw");
+    }
+
+    public void append(String partnum, String partdesc, int qty, int ucost)
+            throws IOException {
+        raf.seek(raf.length());
+        write(partnum, partdesc, qty, ucost);
+    }
+
+    public void close() {
+        try {
+            raf.close();
+        } catch (IOException ioe) {
+            System.err.println(ioe);
+        }
+    }
+
+    public int numRecs() throws IOException {
+        return (int) raf.length() / RECLEN;
+    }
+
+    public Part select(int recno) throws IOException {
+        if (recno < 0 || recno >= numRecs())
+            throw new IllegalArgumentException(recno + " out of range");
+        raf.seek(recno * RECLEN);
+        return read();
+    }
+
+    public void update(int recno, String partnum, String partdesc, int qty,
+                       int ucost) throws IOException {
+        if (recno < 0 || recno >= numRecs())
+            throw new IllegalArgumentException(recno + " out of range");
+        raf.seek(recno * RECLEN);
+        write(partnum, partdesc, qty, ucost);
+    }
+
+    private Part read() throws IOException {
+        StringBuffer sb = new StringBuffer();
+        for (int i = 0; i < PNUMLEN; i++)
+            sb.append(raf.readChar());
+        String partnum = sb.toString().trim();
+        sb.setLength(0);
+        for (int i = 0; i < DESCLEN; i++)
+            sb.append(raf.readChar());
+        String partdesc = sb.toString().trim();
+        int qty = raf.readInt();
+        int ucost = raf.readInt();
+        return new Part(partnum, partdesc, qty, ucost);
+    }
+
+    private void write(String partnum, String partdesc, int qty, int ucost)
+            throws IOException {
+        StringBuffer sb = new StringBuffer(partnum);
+        if (sb.length() > PNUMLEN)
+            sb.setLength(PNUMLEN);
+        else if (sb.length() < PNUMLEN) {
+            int len = PNUMLEN - sb.length();
+            for (int i = 0; i < len; i++)
+                sb.append(" ");
+        }
+        raf.writeChars(sb.toString());
+        sb = new StringBuffer(partdesc);
+        if (sb.length() > DESCLEN)
+            sb.setLength(DESCLEN);
+        else if (sb.length() < DESCLEN) {
+            int len = DESCLEN - sb.length();
+            for (int i = 0; i < len; i++)
+                sb.append(" ");
+        }
+        raf.writeChars(sb.toString());
+        raf.writeInt(qty);
+        raf.writeInt(ucost);
+    }
+
+    public static class Part {
+        private String partnum;
+        private String desc;
+        private int qty;
+        private int ucost;
+
+        public Part(String partnum, String desc, int qty, int ucost) {
+            this.partnum = partnum;
+            this.desc = desc;
+            this.qty = qty;
+            this.ucost = ucost;
+        }
+
+        String getDesc() {
+            return desc;
+        }
+
+        String getPartnum() {
+            return partnum;
+        }
+
+        int getQty() {
+            return qty;
+        }
+
+        int getUnitCost() {
+            return ucost;
+        }
+    }
+}
+```
+
+`PartsDB` 先声明了常量确定string和32-bits integer field的length。然后声明常量用字节计算的record length。计算考虑到了字符在文件中占两个字节。
+
+然后是field `raf `，是`RandomAccessFile `类型。这个field在随后的构造函数被分配为一个`RandomAccessFile `类实例，他会创建/打开一个新的文件或者打开一个存在文件，因为是`rw`mode。
+
+`PartsDB `然后声明`append(), close(), numRecs(), select(), and update() `。这个方法添加一个record到file，关闭file，返回file的record数，选择和返回一个特定的record，更新一个特定的record：
+
+- append() 方法先调用`length() and seek() `。确保在调用private `write()`方法把record写入前，文件指针在文件末尾。
+- `RandomAccessFile’s close()`方法可以抛出`IOException` 。因为异常很少见，选择在`close()`方法里处理掉异常，让方法签名简单。然而，错误发生会打印异常信息。
+-  `numRecs()`方法返回records数。这些记录从0编号到`numRecs() -1`。`select() `和`update()`方法的`recno`参数都在这个范围。
+-  `select() `方法调用private `read()`返回` recno`决定的record实例（`Part`）。
+- `update() `方法同样简单。和`select()`一样，把file指针定位到`recno`决定的record。和`append()`一样，调用`write()`写入参数替换record而不是添加。
+
+使用 private `write() `写入records。因为fields必须有精确的size，`write()`拉长比一个field size短的基于String的值，在右边加空格。必要时将这些值裁剪成field大小 。
+
+使用private` read() `读record。` read()  `在给Part赋值时移除基于String值填充。
+
+就其本身而言，`PartsDB`是无用的。做个实验体验一下：
+
+***Listing 3-2. Experimenting with the Parts Flat File Database*** 
+
+```java
+import java.io.IOException;
+
+public class UsePartsDB {
+    public static void main(String[] args) {
+        PartsDB pdb = null;
+        try {
+            pdb = new PartsDB("parts.db");
+            if (pdb.numRecs() == 0) {
+                // Populate the database with records.
+                pdb.append("1-9009-3323-4x", "Wiper Blade Micro Edge", 30,
+                        2468);
+                pdb.append("1-3233-44923-7j", "Parking Brake Cable", 5, 1439);
+                pdb.append("2-3399-6693-2m", "Halogen Bulb H4 55/60W", 22, 813);
+                pdb.append("2-599-2029-6k", "Turbo Oil Line O-Ring ", 26, 155);
+                pdb.append("3-1299-3299-9u", "Air Pump Electric", 9, 20200);
+            }
+            dumpRecords(pdb);
+            pdb.update(1, "1-3233-44923-7j", "Parking Brake Cable", 5, 1995);
+            dumpRecords(pdb);
+        } catch (IOException ioe) {
+            System.err.println(ioe);
+        } finally {
+            if (pdb != null)
+                pdb.close();
+        }
+    }
+
+    static void dumpRecords(PartsDB pdb) throws IOException {
+        for (int i = 0; i < pdb.numRecs(); i++) {
+            PartsDB.Part part = pdb.select(i);
+            System.out.print(format(part.getPartnum(), PartsDB.PNUMLEN, true));
+            System.out.print(" | ");
+            System.out.print(format(part.getDesc(), PartsDB.DESCLEN, true));
+            System.out.print(" | ");
+            System.out.print(format("" + part.getQty(), 10, false));
+            System.out.print(" | ");
+            String s = part.getUnitCost() / 100 + "." + part.getUnitCost() %
+                    100;
+            if (s.charAt(s.length() - 2) == '.') s += "0";
+            System.out.println(format(s, 10, false));
+        }
+        System.out.println("Number of records = " + pdb.numRecs());
+        System.out.println();
+    }
+
+    static String format(String value, int maxWidth, boolean leftAlign) {
+        StringBuffer sb = new StringBuffer();
+        int len = value.length();
+        if (len > maxWidth) {
+            len = maxWidth;
+            value = value.substring(0, len);
+        }
+        if (leftAlign) {
+            sb.append(value);
+            for (int i = 0; i < maxWidth - len; i++)
+                sb.append(" ");
+        } else {
+            for (int i = 0; i < maxWidth - len; i++)
+                sb.append(" ");
+            sb.append(value);
+        }
+        return sb.toString();
+    }
+}
+```
+
+`main()`方法先实例化`PartsDB`，使用` parts.db `作为database file的name。当没记录,` numRecs()  `返回0。然后通过`append()  `添加了几个record。
+
+`main() `方法然后dump这5个记录到标准输出流，更新 number是1的record的unit cost，再次将这些记录dump到标准输出流中以显示，然后关闭。
+
+**注意**：使用基于integer的美分数量存储cost值。如果要用`java.math.BigDecimal `对象来保存货币值，必须重构`PartsDB`以利用对象序列化的优势，还没做这个（discuss object serialization in Chapter 4 ）。
+
+`main()`依赖`dumpRecords() ` helper方法来dump records，`dumpRecords()`依赖`format()`helper方法format field的值，因此能在正确对齐的列中显示。我可以用`java.util.Formatter `代替 (see Chapter 11 )。
+
+编译运行，输出：
+
+```
+1-9009-3323-4x | Wiper Blade Micro Edge | 30 | 24.68
+1-3233-44923-7j | Parking Brake Cable | 5 | 19.95
+2-3399-6693-2m | Halogen Bulb H4 55/60W | 22 | 8.13
+2-599-2029-6k | Turbo Oil Line O-Ring | 26 | 1.55
+3-1299-3299-9u | Air Pump Electric | 9 | 202.00
+Number of records = 5
+1-9009-3323-4x | Wiper Blade Micro Edge | 30 | 24.68
+1-3233-44923-7j | Parking Brake Cable | 5 | 19.95
+2-3399-6693-2m | Halogen Bulb H4 55/60W | 22 | 8.13
+2-599-2029-6k | Turbo Oil Line O-Ring | 26 | 1.55
+3-1299-3299-9u | Air Pump Electric | 9 | 202.00
+Number of records = 5
+```
+
+**Note** ：Check out Wikipedia’s “Flat file database” entry (https://en.wikipedia.org/wiki/Flat_file_database) to learn more about flat file databases. 
+
+#### exercise
+
+```
+The following exercises are designed to test your understanding of Chapter 3’s content:
+1. What is the purpose of the RandomAccessFile class?
+2. What is a file’s metadata?
+3. What is the purpose of the "rwd" and "rws" mode arguments?
+4. What is a file pointer?
+5. What happens when you write past the end of the file?
+6. True or false: When you call RandomAccessFile’s seek(long)
+method to set the file pointer’s value, and when this value is greater
+than the length of the file, the file’s length changes.
+7. What does method void write(int b) accomplish?
+8. What does FileDescriptor’s sync() method accomplish?
+9. Define flat file database.
+10. Write a small Java application named RAFDemo that opens file data in
+read/write mode, uses void write(int b) to write byte value 127
+followed by void writeChars(String s) to write string "Test"
+(minus the quotes) to this file, resets the file pointer to the start of the
+file, and read/outputs these values.
+```
+
+#### Summary 
+
+### Chapter 4 Streams 
+
+连同`java.io.File and java.io.RandomAccessFile`，Java’s classic I/O也提供了 streams用于文件操作。stream是一个有顺序的任意长度的字节的序列。 字节从应用到目的地流过输出流，从源到应用流过输入流。
+
+#### Stream Classes Overview 
+
+output stream类结构层次图：
+
+![1532685952107](https://github.com/konekos/notes/blob/master/src/pic/1532685952107.png?raw=true)
+
+input stream类结构层次图：
+
+![1532686025994](https://github.com/konekos/notes/blob/master/src/pic/1532686025994.png?raw=true)
