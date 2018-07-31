@@ -1172,11 +1172,666 @@ Java提供抽象的` OutputStream and InputStream `类描述I/O流。`OutputStre
 
 ***Table 4-1. OutputStream Methods*** 
 
-| Method       | Description                                                  |
-| ------------ | ------------------------------------------------------------ |
-| void close() | 关流和释放任何和流有关的操作系统资源。I/O错误发生抛出` java.io.IOException `。 |
-| void flush() |                                                              |
-|              |                                                              |
-|              |                                                              |
-|              |                                                              |
+| Method                                 | Description                                                  |
+| -------------------------------------- | ------------------------------------------------------------ |
+| void close()                           | 关流和释放任何和流有关的操作系统资源。I/O错误发生抛出` java.io.IOException `。 |
+| void flush()                           | 把任何缓冲的输出字节写到目的地来刷新输出流。如果输出流的目的地是底层操作系统提供的一个抽象（例如file），刷新这个流只保证先前写入流的字节被传递给底层操作系统用于write；不保证确实被写入物理设备比如一个磁盘驱动器。I/O错误发生抛出` java.io.IOException `。 |
+| void write(byte[] b)                   | 从字节数组b写b个length字节到输入流。通常  write(b) 表现得像你指定了 write(b, 0, b.length)。b是null抛出`  java.lang .NullPointerException `，I/O错误发生抛出` java.io.IOException ` |
+| void write(byte[] b, int off, int len) | 从byte数组b的off offset开始，写len个字节到输入流。b是null抛出`  java.lang .NullPointerException `，` IndexOutOfBoundsException  `当off是负，len是负，或者off + bean>b.length；I/O错误发生抛出` java.io.IOException ` |
+| void write(int b)                      | 写字节b到输入流。只有8个 ow-order bits被写；24个 high-order bits 被忽略。I/O错误发生抛出` java.io.IOException ` |
 
+ flush()  在长期运行的应用需要经常保持更改的时候很有用。记住flush() 只刷新字节到操作系统；不一定导致操作系统刷新字节到磁盘。
+
+**注意**： close() 自动刷新输出流，如果应用在close被调用前结束，输入流自动关系，数据被刷新。
+
+`InputStream `是所有输入流的超类。
+
+***Table 4-2. InputStream Methods*** 
+
+| Method                               | Description                                                  |
+| ------------------------------------ | ------------------------------------------------------------ |
+| int available()                      | 返回从输入流读取的字节数量的估计，通过  read() 方法（或 skipped over via skip() ）调用而不阻塞调用线程。I/O错误发生抛出` java.io.IOException `。用它的返回值来分配一个缓冲区来存放所有流的数据是不正确的，因为子类的实现可能不会返回流的总大小。 |
+| void close()                         | 关闭输入流并释放任何和流有关的操作系统资源。I/O错误发生抛出` java.io.IOException `。 |
+| void mark(int readlimit)             | 在输入流中标记当前位置。随后调用  reset()  ，定位流到最后一次标记的位置，然后随后的读操作读取相同的字节。 `readlimit `参数告诉输入流在失效标记前，允许读取多少字节（因此这个流不能被重置到标记的位置 ）。 |
+| boolean markSupported()              | 当这个输入流支持  mark() and reset() 返回true；否则，返回false。 |
+| int read()                           | 读取返回（作为0-255的一个int值）输入流的下一个字节，到达流终点返回-1；这个方法会阻塞，直到input可用，流end被检测，或抛出异常。I/O错误发生抛出` java.io.IOException `。 |
+| int read(byte[] b)                   | 从这个输入流读一定数目的字节，把他们存到字节数组b。返回实际读取的字节数（可能比b的length小但是永远不会超过），或者返回-1当到达流end（无字节可读）。这个方法会阻塞，直到input可用，流end被检测，或抛出异常。b是null抛出空指针，I/O错误发生抛出` java.io.IOException `。 |
+| int read(byte[] b, int off, int len) | 从输入流读不超过len个字节，存在array b，从off开始。返回实际读取的字节数（可能比b的length小但是永远不会超过），或者返回-1当到达流end（无字节可读）。这个方法会阻塞，直到input可用，流end被检测，或抛出异常。。b是null抛出空指针；off是负，len是负，len比b.length-off大抛出` IndexOutOfBoundsException `I/O错误发生抛出` java.io.IOException `。 |
+| void reset()                         | 重定位输入流到最后一次 mark()的位置。输入流没被标记或标记失效抛出`IOException`  。 |
+| long skip(long n)                    | 跳过并丢弃n字节的数据。这个方法可能跳过的数量会小一点（可0），例如，file end。返回实际的跳过数。n是负，不跳过。输入流不支持skip或者I/O错误抛出` IOException ` |
+
+子类例如`ByteArrayInputStream`支持mark()标记当前位置，然后reset返回。
+
+**注意**：不要忘了调用`markSupported() `来看是不是支持mark() and reset()。
+
+##### ByteArrayOutputStream and ByteArrayInputStream 
+
+字节数组在作为流目的地和源时很有用。`ByteArrayOutputStream `类让你写一个字节流到字节数组；`ByteArrayInputStream `让你从字节数组读取字节流。
+
+`ByteArrayOutputStream `声明2个构造器。每个构造器使用内部的字节数组创建 byte array output stream；这个array的copy可以通过调用` byte[] toByteArray() `返回：
+
+- ByteArrayOutputStream() 使用内部的字节数组初始容量是32字节 创建一个byte array output stream。这个数组必要时增长。
+- ByteArrayOutputStream(int size) 使用指定的长度创建byte array output stream。 <0抛出`java.lang.IllegalArgumentException `。
+
+下面的例子用`ByteArrayOutputStream()  `创建一个byte array output stream，使用默认size。
+
+```java
+ByteArrayOutputStream baos = new ByteArrayOutputStream();
+```
+
+`ByteArrayInputStream `也有两个构造器。每个构造器基于指定字节数组创建a byte array input stream 
+
+- ByteArrayInputStream(byte[] ba) 使用ba数组创建（直接使用；不创建copy）。position为0，要读的字节数为ba.length。
+- ByteArrayInputStream(byte[] ba, int offset, int count)  position是offset，读取count个字节。
+
+例子，
+
+```
+ByteArrayInputStream bais = new ByteArrayInputStream(baos.toByteArray());
+```
+
+这两个流在你需要转换图片为字节数组，用某种方法处理字节，然后转换字节成图片。
+
+一个例子：
+
+```java
+String path = ... ; // Assume a legitimate path to an image.
+Bitmap bm = BitmapFactory.decodeFile(path);
+ByteArrayOutputStream baos = new ByteArrayOutputStream();
+if (bm.compress(Bitmap.CompressFormat.PNG, 100, baos))
+{
+ byte[] imageBytes = baos.toByteArray();
+ // Do something with imageBytes.
+ bm = BitMapFactory.decodeStream(new ByteArrayInputStream(imageBytes));
+}
+```
+
+##### FileOutputStream and FileInputStream 
+
+文件是常见的流目的地和源。 
+
+下面用`FileOutputStream(String path)`创建文件输出流。
+
+```java
+FileOutputStream fos = new FileOutputStream("employee.dat");
+```
+
+**Tip**：FileOutputStream(String name) 重新存在的文件。要添加数据而不是覆盖存在的内容，调用带有 boolean append 的构造器，设置参数为true。
+
+下面创建一个 FileInputStream(String name) 的文件输入流，employee.dat为source。
+
+```java
+FileInputStream fis = new FileInputStream("employee.dat");
+```
+
+FileOutputStream and FileInputStream 在文件复制有用。
+
+***Listing 4-1. Copying a Source File to a Destination File***
+
+```java
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
+public class Copy {
+    public static void main(String[] args) {
+        if (args.length != 2) {
+            System.err.println("usage: java Copy srcfile dstfile");
+            return;
+        }
+        FileInputStream fis = null;
+        FileOutputStream fos = null;
+        try {
+            fis = new FileInputStream(args[0]);
+            fos = new FileOutputStream(args[1]);
+            int b; // I chose b instead of byte because byte is a reserved
+            // word.
+            while ((b = fis.read()) != -1)
+                fos.write(b);
+        } catch (FileNotFoundException fnfe) {
+            System.err.println(args[0] + " could not be opened for input, or "
+                    + args[1] + " could not be created for output");
+        } catch (IOException ioe) {
+            System.err.println("I/O error: " + ioe.getMessage());
+        } finally {
+            if (fis != null)
+                try {
+                    fis.close();
+                } catch (IOException ioe) {
+                    assert false; // shouldn't happen in this context
+                }
+            if (fos != null)
+                try {
+                    fos.close();
+                } catch (IOException ioe) {
+                    assert false; // shouldn't happen in this context
+                }
+        }
+    }
+}
+```
+
+使用try-resource
+
+```java
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
+public class Copy1 {
+    public static void main(String[] args) {
+        if (args.length != 2) {
+            System.err.println("usage: java Copy srcfile dstfile");
+            return;
+        }
+        try (FileInputStream fis = new FileInputStream(args[0]);
+             FileOutputStream fos = new FileOutputStream(args[1])) {
+            int b; // I chose b instead of byte because byte is a reserved
+            // word.
+            while ((b = fis.read()) != -1)
+                fos.write(b);
+        } catch (FileNotFoundException fnfe) {
+            System.err.println(args[0] + " could not be opened for input, or "
+                    + args[1] + " could not be created for output");
+        } catch (IOException ioe) {
+            System.err.println("I/O error: " + ioe.getMessage());
+        }
+    }
+}
+```
+
+##### PipedOutputStream and PipedInputStream 
+
+线程必须经常交流。一种方法是引入共享变量。另一种是通过`PipedOutputStream and PipedInputStream `类使用piped streams（管道流）。`PipedOutputStream `类让一个sending线程写一个字节流到一个`PipedInputStream `类的实例，然后一个receiving线程读取这些字节。
+
+**警告**:尝试使用来自一个single thread的 a`PipedOutputStream` object and a `PipedInputStream` object 是不推荐的，可能会死锁。
+
+`PipedOutputStream `声明2个构造器：
+
+- PipedOutputStream() 创建一个 piped output stream ，还没有连接到 a piped input stream 。在使用前，它必须被连接到一个 piped input stream ，无论使用receiver or the sender 。
+- PipedOutputStream(PipedInputStream dest) 创建piped output stream 连接到piped input stream dest 。写到piped output stream的字节可以从dest读出来。I/O错误抛出`IOException`。
+
+ connect(PipedInputStream dest)方法，用于连接。
+
+`PipedInputStream `2个构造器：
+
+- PipedInputStream()  用前必须连接。
+- PipedInputStream(int pipeSize) 使用pipeSize指定管道大小。用前必须连接。
+- PipedInputStream(PipedOutputStream src) 
+- PipedInputStream(PipedOutputStream src, int pipeSize)  
+
+ connect(PipedOutputStream src) 方法用于连接。
+
+创建一对管道流的最简单的方法是在同一个线程中任意顺序。例如：
+
+```java
+PipedOutputStream pos = new PipedOutputStream();
+PipedInputStream pis = new PipedInputStream(pos);
+```
+
+或者：
+
+```java
+PipedInputStream pis = new PipedInputStream();
+PipedOutputStream pos = new PipedOutputStream(pis);
+```
+
+也可以:
+
+```java
+PipedOutputStream pos = new PipedOutputStream();
+PipedInputStream pis = new PipedInputStream();
+// ...
+pos.connect(pis);
+```
+
+实例：
+
+***Listing 4-3. Piping Randomly Generated Bytes from a Sender Thread to a Receiver Thread*** 
+
+```java
+import java.io.IOException;
+import java.io.PipedInputStream;
+import java.io.PipedOutputStream;
+
+public class PipedStreamsDemo {
+    final static int LIMIT = 10;
+
+    public static void main(String[] args) throws IOException {
+        final PipedOutputStream pos = new PipedOutputStream();
+        final PipedInputStream pis = new PipedInputStream(pos);
+        Runnable senderTask = () -> {
+            try {
+                for (int i = 0; i < LIMIT; i++)
+                    pos.write((byte)
+                            (Math.random() * 256));
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            } finally {
+                try {
+                    pos.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+            }
+        };
+        Runnable receiverTask = () -> {
+            try {
+                int b;
+                while ((b = pis.read()) != -1)
+                    System.out.println(b);
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            } finally {
+                try {
+                    pis.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+            }
+        };
+        Thread sender = new Thread(senderTask);
+        Thread receiver = new Thread(receiverTask);
+        sender.start();
+        receiver.start();
+    }
+}
+```
+
+##### FilterOutputStream and FilterInputStream 
+
+Byte array, file, and piped streams传递没有变动过的字节给目标。也支持 filter streams来buffer, compress/ uncompress, encrypt/decrypt, or otherwise manipulate a stream’s byte sequence (that is input to the filter) 。
+
+一个filter output stream拿到传递给 write()方法的数据（(the input stream ），过滤，写过滤过的数据到下面的output stream，可能是 another filter output stream or a destination output stream such as a file output stream。
+
+Filter output streams用`OutputStream `子类`FilterOutputStream `创建，单个构造器`FilterOutputStream(OutputStream out) `。示例：
+
+***Listing 4-4. Scrambling a Stream of Bytes*** 
+
+```java
+import java.io.FilterOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+
+public class ScrambledOutputStream extends FilterOutputStream {
+    private int[] map;
+
+    public ScrambledOutputStream(OutputStream out, int[] map) {
+        super(out);
+        if (map == null)
+            throw new NullPointerException("map is null");
+        if (map.length != 256)
+            throw new IllegalArgumentException("map.length != 256");
+        this.map = map;
+    }
+
+    @Override
+    public void write(int b) throws IOException {
+        out.write(map[b]);
+    }
+}
+```
+
+4-5打乱文件字节：
+
+***Listing 4-5. Scrambling a File’s Bytes*** 
+
+```java
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.Random;
+
+public class Scramble {
+    public static void main(String[] args) {
+        if (args.length != 2) {
+            System.err.println("usage: java Scramble srcpath destpath");
+            return;
+        }
+        FileInputStream fis = null;
+        ScrambledOutputStream sos = null;
+        try {
+            fis = new FileInputStream(args[0]);
+            FileOutputStream fos = new FileOutputStream(args[1]);
+            sos = new ScrambledOutputStream(fos, makeMap());
+            int b;
+            while ((b = fis.read()) != -1)
+                sos.write(b);
+        } catch (IOException ioe) {
+            ioe.printStackTrace();
+        } finally {
+            if (fis != null)
+                try {
+                    fis.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+            if (sos != null)
+                try {
+                    sos.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+        }
+    }
+
+    static int[] makeMap() {
+        int[] map = new int[256];
+        for (int i = 0; i < map.length; i++)
+            map[i] = i;
+        // Shuffle map.
+        Random r = new Random(0);
+        for (int i = 0; i < map.length; i++) {
+            int n = r.nextInt(map.length);
+            int temp = map[i];
+            map[i] = map[n];
+            map[n] = temp;
+        }
+        return map;
+    }
+}
+```
+
+Filter input streams，示例：
+
+***Listing 4-6. Unscrambling a Stream of Bytes*** 
+
+使用ScrambledInputStream 解密：
+
+***Listing 4-7. Unscrambling a File’s Bytes*** 
+
+```java
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.Random;
+
+public class Unscramble {
+    public static void main(String[] args) {
+        if (args.length != 2) {
+            System.err.println("usage: java Unscramble srcpath destpath");
+            return;
+        }
+        ScrambledInputStream sis = null;
+        FileOutputStream fos = null;
+        try {
+            FileInputStream fis = new FileInputStream(args[0]);
+            sis = new ScrambledInputStream(fis, makeMap());
+            fos = new FileOutputStream(args[1]);
+            int b;
+            while ((b = sis.read()) != -1)
+                fos.write(b);
+        } catch (IOException ioe) {
+            ioe.printStackTrace();
+        } finally {
+            if (sis != null)
+                try {
+                    sis.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+            if (fos != null)
+                try {
+                    fos.close();
+                } catch (IOException ioe) {
+                    ioe.printStackTrace();
+                }
+        }
+    }
+
+    static int[] makeMap() {
+        int[] map = new int[256];
+        for (int i = 0; i < map.length; i++)
+            map[i] = i;
+        // Shuffle map.
+        Random r = new Random(0);
+        for (int i = 0; i < map.length; i++) {
+            int n = r.nextInt(map.length);
+            int temp = map[i];
+            map[i] = map[n];
+            map[n] = temp;
+        }
+        int[] temp = new int[256];
+        for (int i = 0; i < temp.length; i++)
+            temp[map[i]] = i;
+        return temp;
+    }
+}
+```
+
+##### BufferedOutputStream and BufferedInputStream 
+
+FileOutputStream和FileInputStream有一个性能问题。 每个 file output stream write() 方法调用和 file input stream read() 方法调用导致 a native method调用操作系统程式，这些native methods减缓了I/O。
+
+ `BufferedOutputStream` and `BufferedInputStream` filter stream类提高了性能，通过最小化底层的output stream write() 调用和 input stream read() 方法调用。使用`BufferedOutputStream`’s write() and `BufferedInputStream`’s read() 代替，将Java缓冲区考虑进去：
+
+- 当write buffer满了，write() 调用底层的output stream write()方法来排空buffer。随后调用`BufferedOutputStream`的write()方法将字节保存在这个缓冲区中，直到它再次满为止。
+- 当 read buffer是空的， read() 调用底层的 input stream read() 方法来充满buffer。随后调用 `BufferedInputStream`’s read() 从该buffer返回字节直到它再次为空。
+
+`BufferedOutputStream`以下构造器
+
+- BufferedOutputStream(OutputStream out) 创建一个buffered output stream把输出流到out。一个内部的buffer被创建用来保存写出的字节。
+- BufferedOutputStream(OutputStream out, int size) 指定了长度。
+
+```java
+FileOutputStream fos = new FileOutputStream("employee.dat");
+BufferedOutputStream bos = new BufferedOutputStream(fos); // Chain bos
+// to fos.
+bos.write(0); // Write to employee.dat through the buffer.
+// Additional write() method calls.
+bos.close(); // This method call internally calls fos's close() method.
+```
+
+`BufferedInputStream `有两个构造器：
+
+- BufferedInputStream(InputStream in)  
+- BufferedInputStream(InputStream in, int size) 
+
+```java
+FileInputStream fis = new FileInputStream("employee.dat");
+BufferedInputStream bis = new BufferedInputStream(fis); // Chain bis to fis.
+int ch = bis.read(); // Read employee.dat through the buffer.
+// Additional read() method calls.
+bis.close(); // This method call internally calls fis's close() method.
+```
+
+##### DataOutputStream and DataInputStream 
+
+`FileOutputStream and FileInputStream `对读取字节和字节数组很有用。然而，不支持读写primitive-type的值（比如integer）和strings。
+
+于是Java提供了 DataOutputStream and DataInputStream filter stream 类。克服了这个限制，提供方法读写primitive-type和strings，用依赖于操作系统的方式：
+
+- Integer values是用 big-endian 形式读写。
+- Floating-point and double precision floating-point  根据 IEEE 754 标准读写，每个floatingpoint value 4 字节，每个double precision floating-point value8字节。
+- Strings根据修改的UTF-8 版本读写，一个可变长度编码标准有效保存2字节 Unicode characters 。
+
+`DataOutputStream `有一个构造器，DataOutputStream(OutputStream out) 。因为实现了`java.io.DataOutput `，`DataOutputStream `也提供了到` java.io.RandomAccessFile `提供的相同命名的写方法的访问。
+
+`DataInputStream `一个构造器，DataInputStream(InputStream in) 。因为实现了` java.io.DataInput `，`DataInputStream `也提供` java.io.RandomAccessFile `的相同命名的读方法的访问。
+
+例子：
+
+***Listing 4-8. Outputting and then Inputting a Stream of Multibyte Values*** 
+
+```java
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+
+public class DataStreamsDemo {
+    final static String FILENAME = "values.dat";
+
+    public static void main(String[] args) {
+        try (FileOutputStream fos = new FileOutputStream(FILENAME);
+             DataOutputStream dos = new DataOutputStream(fos)) {
+            dos.writeInt(1995);
+            dos.writeUTF("Saving this String in modified UTF-8 format!");
+            dos.writeFloat(1.0F);
+        } catch (IOException ioe) {
+            System.err.println("I/O error: " + ioe.getMessage());
+        }
+        try (FileInputStream fis = new FileInputStream(FILENAME);
+             DataInputStream dis = new DataInputStream(fis)) {
+            System.out.println(dis.readInt());
+            System.out.println(dis.readUTF());
+            System.out.println(dis.readFloat());
+        } catch (IOException ioe) {
+            System.err.println("I/O error: " + ioe.getMessage());
+        }
+    }
+}
+```
+
+**警告**：当读一个序列`DataOutputStream`的方法写入的值，确保使用相同的方法调用序列。否则得到错误的数据。
+
+#### Object Serialization and Deserialization 
+
+Java提供`DataOutputStream and DataInputStream classes `来流化 primitive-type values and String objects。但你不能stream非string对象。你必须用`object serialization and deserialization `来stream任意类型对象。
+
+对象*serialization*是一个JVM机制，序列化对象状态变成一个字节流。对应的 *deserialization* 是相反的。
+
+**注意**：对象state由实例fields组成，保存了原始类型值和其他对象的引用。当一个对象序列化，是这个state一部分的对象也会实例化（除非你阻止）。另外，这些对象的部分是对象的话也一样实例化。
+
+Java支持默认 serialization and deserialization，自定义 serialization and deserialization 和externalization 。
+
+##### Default Serialization and Deserialization 
+
+默认的是最简单的方式但是提供很少的control。虽然Java代你做了大部分事情，但是你也要2个任务必须做。
+
+第一个任务要被序列化的类要实现`java.io.Serializable `接口，实现的原因是避免无限序列化。
+
+**注意**：`Serializable `是一个空的标记接口（没有方法来实现），告诉JVM序列化是okay的。当序列化机制遭遇没有实现这个接口的对象，抛出`java.io.NotSerializableException `（一个`IOException`的非直接子类）。
+
+*Unlimited serialization*是序列化整个object graph的过程。不支持它的原因：
+
+- Security: 
+- Performance: 序列化利用了反射API，会降低应用程序的性能。无限序列化可能会损害应用程序的性能。
+- Objects not amenable to serialization: 
+
+下面一个例子：
+
+***Listing 4-9. Implementing Serializable*** 
+
+```java
+import java.io.Serializable;
+public class Employee implements Serializable
+{
+ private String name;
+ private int age;
+ public Employee(String name, int age)
+ {
+ this.name = name;
+ this.age = age;
+ }
+ public String getName() { return name; }
+ public int getAge() { return age; }
+}
+
+```
+
+`java.lang.String`也实现了Serializable。
+
+第二个任务是用`ObjectOutputStream `类，和它的`writeObject() `方法来序列化，`ObjectInputStream `的`readObject() `方法反序列化。
+
+**注意**：虽然没继承 FilterOutputStream 和 FilterInputStream ，上面那2个序列化的类也表现如同filter streams 。
+
+ `ObjectOutputStream`序列化对象state，构造器` ObjectOutputStream(OutputStream out)， `当传递output stream reference到out，构造器尝试写一个 serialization header 到输出流。out是null抛异常阻止写入header。
+
+`writeObject(Object obj) `方法尝试写关于对象类的信息，紧接着写对象实例field的值。不会序列化static field，和 transient 标注的field（忽略）。
+
+**注意**：`ObjectOutputStream` implements `DataOutput `，提供了写primitive-type values and strings到对象输出流的方法。
+
+`ObjectInputStream  `类反序列化。`ObjectInputStream(InputStream in) `构造器。当传递 input stream reference 到in，尝试从输入流读取serialization header ，抛出空指针 IO异常，如果header不对就抛出`java.io.StreamCorruptedException `。
+
+` readObject() `方法反序列化对象。
+
+**注意**：类似上一个。
+
+例子：
+
+***Listing 4-10. Serializing and Deserializing an Employee Object***
+
+```java
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+
+public class SerializationDemo {
+    final static String FILENAME = "employee.dat";
+
+    public static void main(String[] args) {
+        ObjectOutputStream oos = null;
+        ObjectInputStream ois = null;
+        try {
+            FileOutputStream fos = new FileOutputStream(FILENAME);
+            oos = new ObjectOutputStream(fos);
+            Employee emp = new Employee("John Doe", 36);
+            oos.writeObject(emp);
+            oos.close();
+            oos = null;
+            FileInputStream fis = new FileInputStream(FILENAME);
+            ois = new ObjectInputStream(fis);
+            emp = (Employee) ois.readObject(); // (Employee) cast is necessary.
+            ois.close();
+            System.out.println(emp.getName());
+            System.out.println(emp.getAge());
+        } catch (ClassNotFoundException cnfe) {
+            System.err.println(cnfe.getMessage());
+        } catch (IOException ioe) {
+            System.err.println(ioe.getMessage());
+        } finally {
+            if (oos != null)
+                try {
+                    oos.close();
+                } catch (IOException ioe) {
+                    assert false; // shouldn't happen in this context
+                }
+            if (ois != null)
+                try {
+                    ois.close();
+                } catch (IOException ioe) {
+                    assert false; // shouldn't happen in this context
+                }
+        }
+    }
+}
+
+```
+
+ 反序列化后不能不保证是同一个类（可能一个实例field被删除了）。当类不同抛出`java.io.InvalidClassException `。
+
+每个序列化的对象有一个标识符。标识符不匹配抛出`InvalidClassException `。
+
+也许您已经在类中添加了一个实例字段，你想让这个field有默认值而不是抛出` InvalidClassException `，通过添加static final long serialVersionUID = long integer value到class。long integer value 必须是唯一的作为一个stream unique identifier (SUID)。
+
+反序列化时，会比较SUID，如果匹配，当遭遇兼容的class  change不会抛出`InvalidClassException `（比如添加实例field）。但是不兼容的class变更还是抛出异常（比如修改field name）。
+
+**注意**：当你以某种方式改变一个类的时候，必须重新计算SUID。
+
+JDK提供serialver tool 来生成 SUID。例如：
+
+```java
+serialver Employee
+```
+
+生成：
+
+```java
+Employee: static final long serialVersionUID = 1517331364702470316L;
+```
+
+windows可视化界面：
+
+```java
+serialver -show
+```
+
+##### Custom Serialization and Deserialization 
+
+如果你要序列化没实现`Serializable `的类，
