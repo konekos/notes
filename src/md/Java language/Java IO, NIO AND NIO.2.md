@@ -2308,3 +2308,217 @@ Java的streams对字节序列流很有用，但是对字符流不好，因为字
 ![1533093724082](https://github.com/konekos/notes/blob/master/src/pic/1533093724082.png?raw=true)
 
 ![1533093741720](https://github.com/konekos/notes/blob/master/src/pic/1533093741720.png?raw=true)
+
+ FilterWriter and FilterReader是抽象的。BufferedWriter and BufferedReader 不继承 FilterWriter and FilterReader ，这是和stream层次不一样的地方。
+
+ output stream and input stream 是1.0引入的，FilterOutputStream and FilterInputStream 本该是抽象的，但是已经不能变了已经被使用了。1.1’s writer and reader 就有时间改变这些错误。
+
+**注意**：关于 BufferedWriter and BufferedReader 直接继承Writer and Reader 而不是 FilterWriter and FilterReader ，这种变化与性能有关 。调用BufferedOutputStream’s write() methods and BufferedInputStream’s read() 方法导致调用FilterOutputStream’s write() methods and FilterInputStream’s read() 方法。BufferedWriter and BufferedReader 不继承Filexxxxer会有更好的性能。
+
+#### Writer and Reader 
+
+ Writer and java.io.OutputStream 的不同点：
+
+- Writer声明了几个append() 方法添加字符到writer。因为Writer implements the java.lang.Appendable接口，和`java.util.Formatter `类协作，来输出格式化的string。
+- writer声明额外的 write() 方法，和便利的`write(String str) `方法
+
+ Reader and java.io.InputStream 的不同点：
+
+- Reader 声明read(char[]) and read(char[], int, int)  
+- Reader 没有声明available() 方法
+- 声明了一个 boolean ready() 方法，当下一个read() 调用被保证不被阻塞输出就返回true。
+- 声明了一个int read(CharBuffer target) 方法，从一个 character buffer 读取字符（ CharBuffer in Chapter 6 ）。
+
+##### OutputStreamWriter and InputStreamReader 
+
+`OutputStreamWriter `是一个输入的字符序列和要流出的字节流的桥梁。被写到这个writer的字符根据默认或指定编码被编码成字节。
+
+**注意**： default character encoding 可以从`file.encoding `系统属性拿到。
+
+每一个 OutputStreamWriter’s write() 方法的调用都会导致一个encoder 在给出的字符上被调用。生成的字节在buffer累积，在被写入下面的输出流之前。传递给write的方法没有被buffered。
+
+OutputStreamWriter有4个构造器，包括下面2个：
+
+- OutputStreamWriter(OutputStream out)  
+- OutputStreamWriter(OutputStream out, String charsetName) 指定编码
+
+**注意**：OutputStreamWriter 依赖` java.nio.charset. Charset and java.nio.charset.CharsetEncoder `抽象类执行字符编码。
+
+例子：
+
+```java
+FileOutputStream fos = new FileOutputStream("polish.txt");
+OutputStreamWriter osw = new OutputStreamWriter(fos, "8859_2");
+char ch = '\u0323'; // Accented N.
+osw.write(ch);
+```
+
+ InputStreamReader类是一个进来的字节流和出去的字符序列的桥梁。每个InputStreamReader’s read() 的调用导致一个或多个字节从底层输入流被读。为了效率可能会读更多的字节。
+
+4个构造器，其中2个：
+
+- InputStreamReader(InputStream in) 
+- InputStreamReader(InputStream in, String charsetName)  
+
+**注意**：OutputStreamWriter and InputStreamReader 声明了getEncoding() 方法，返回使用的编码
+
+##### FileWriter and FileReader 
+
+FileWriter 是一个方便类，写字符到文件。它继承OutputStreamWriter ，一个这个类的实例等同于下面
+
+```java
+FileOutputStream fos = new FileOutputStream(path);
+OutputStreamWriter osw;
+osw = new OutputStreamWriter(fos, System.getProperty("file.encoding"));
+```
+
+FileReader是一个方便类，从文件读取字符。继承InputStreamReader ，一个这个类的实例等同于：
+
+```java
+FileInputStream fis = new FileInputStream(path);
+InputStreamReader isr;
+isr = new InputStreamReader(fis, System.getProperty("file.encoding"));
+```
+
+FileWriter nor FileReader 都没提供它们自己的方法，你可以调用继承方法。
+
+例子：
+
+***Listing 5-1. Demonstrating the FileWriter and FileReader Classes*** 
+
+```java
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+public class FWFRDemo
+{
+ final static String MSG = "Test message";
+ public static void main(String[] args) throws IOException
+ {
+ try (FileWriter fw = new FileWriter("temp"))
+ {
+ fw.write(MSG, 0, MSG.length());
+ }
+ char[] buf = new char[MSG.length()];
+ try (FileReader fr = new FileReader("temp"))
+ {
+ fr.read(buf, 0, MSG.length());
+ System.out.println(buf);
+ }
+ }
+}
+```
+
+##### BufferedWriter and BufferedReader 
+
+BufferedWriter 写文本到字符输出流（ Writer 实例），缓冲字符，以提供高效的写单个字符、数组和字符串。构造函数：
+
+- BufferedWriter(Writer out) 
+- BufferedWriter(Writer out, int size) 
+
+size可以指定，或者默认的8,192 bytes 。
+
+BufferedWriter包含一个便利的void newLine() 方法，写一个行分隔符字符串，来打断这一行。
+
+BufferedReader 从字符输入流（Reader 实例）读取文本，缓冲字符以便有效读取字符、数组和行。构造函数：
+
+- BufferedReader(Reader in) 
+- BufferedReader(Reader in, int size) 
+
+size可以指定，或者默认8,192 bytes 。
+
+有个方便的 String readLine() 方法，读取行文本，不包括任何换行符。
+
+例子：
+
+***Listing 5-2. Demonstrating the BufferedWriter and BufferedReader Classes*** 
+
+```java
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.FileReader;
+import java.io.FileWriter;
+import java.io.IOException;
+public class BWBRDemo
+{
+ static String[] lines =
+ {
+ "It was the best of times, it was the worst of times,",
+ "it was the age of wisdom, it was the age of foolishness,",
+ "it was the epoch of belief, it was the epoch of incredulity,",
+ "it was the season of Light, it was the season of Darkness,",
+ "it was the spring of hope, it was the winter of despair."
+ };
+ public static void main(String[] args) throws IOException
+ {
+ try (BufferedWriter bw = new BufferedWriter(new FileWriter("temp")))
+ {
+ for (String line: lines)
+ {
+ bw.write(line, 0, line.length());
+ bw.newLine();
+ }
+ }
+ try (BufferedReader br = new BufferedReader(new FileReader("temp")))
+ {
+ String line;
+ while ((line = br.readLine()) != null)
+ System.out.println(line);
+ }
+ }
+}
+```
+
+#### Exercise
+
+The following exercises are designed to test your understanding of Chapter 5’s content:
+
+```java
+1. Why are Java’s stream classes not good at streaming characters?
+2. What does Java provide as the preferred alternative to stream classes
+when it comes to character I/O?
+3. True or false: Reader declares an available() method.
+4. What is the purpose of the OutputStreamWriter class? What is the
+purpose of the InputStreamReader class?
+5. How do you identify the default character encoding?
+6. What is the purpose of the FileWriter class? What is the purpose of
+the FileReader class?
+7. What method does BufferedWriter provide for writing a line
+separator?
+8. It’s often convenient to read lines of text from standard input, and the
+InputStreamReader and BufferedReader classes make this task
+possible. Create a Java application named CircleInfo that, after
+obtaining a BufferedReader instance that is chained to standard
+input, presents a loop that prompts the user to enter a radius, parses
+the entered radius into a double value, and outputs a pair of messages
+that report the circle’s circumference and area based on this radius.
+```
+
+#### Summary 
+
+Java’s stream classes are good for streaming sequences of bytes, but they’re not good for streaming sequences of characters because bytes and characters are two different things. A byte represents an 8-bit data item and a character represents a 16-bit data item. Also, Java’s char and String types naturally handle characters instead of bytes. More importantly, byte streams have no knowledge of character sets and their encodings. 
+
+Java provides writer and reader classes to stream characters. They support character I/O (they work with char instead of byte) and take character encodings into account. The abstract Writer and Reader classes describe what it means to be a writer and a reader. 
+
+Writer and Reader are subclassed by OutputStreamWriter and InputStreamReader, which bridge the gap between character and byte streams. These classes are subclassed by the FileWriter and FileReader convenience classes, which facilitate writing/reading characters to/from files. Writer and Reader are also subclassed by BufferedWriter and BufferedReader, which buffer characters for efficiency. 
+
+## PART Ⅲ New I/O APIs 
+
+### Chapter 6 Buffers 
+
+NIO是基于buffer的，它的内容通过channels被发送到 I/O services 或者从 I/O services 接收。
+
+#### Introducing Buffers 
+
+一个buffer是一个对象，存储固定数量的发送到或从 I/O service（操作系统执行输入输出的组件）接收的数据。它处于应用和channel之间，channel写缓冲数据到service，或者从service读取数据存到buffer。
+
+缓冲区具有四个属性：
+
+- Capacity: 可以存在buffer的data item的总数。创建时指定，并且之后不能更改。
+- Limit: 第一个不能被读写的元素的以0为基准的索引。换句话说，它表明了buffer里的 “live” data items 。
+- Position:  下一个可以被读的data item或者data item 可以被写位置的以0为基准的索引。
+- Mark:  当buffer的 reset() 方法被调用时设置位置的以0为基准的索引。Mark开始未被定义。
+
+这4个属性联系如下：0 <= mark <= position <= limit <= capacity 
+
+![1533108252365](https://github.com/konekos/notes/blob/master/src/pic/1533108252365.png?raw=true)
