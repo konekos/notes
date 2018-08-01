@@ -1834,4 +1834,477 @@ serialver -show
 
 ##### Custom Serialization and Deserialization 
 
-如果你要序列化没实现`Serializable `的类，
+如果你要序列化没实现`Serializable `的类，一种解决方案是，继承这个类，让子类实现` Serializable `，子类构造器呼叫父类。
+
+当父类没声明无参构造是不行的。例子：
+
+***Listing 4-11. Problematic Deserialization*** 
+
+```java
+public class Employee1 {
+    private String name;
+
+    Employee1(String name) {
+        this.name = name;
+    }
+
+    @Override
+    public String toString() {
+        return name;
+    }
+}
+```
+
+```java
+public class SerEmployee extends Employee1 implements Serializable {
+    SerEmployee(String name)
+    {
+        super(name);
+    }
+}
+```
+
+```java
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+
+
+public class SerializationDemo {
+
+    private final static String PATH = "E:\\SpringSourceCode\\src\\main\\resources\\image.txt";
+
+    public static void main(String[] args) {
+        ObjectOutputStream oos = null;
+        ObjectInputStream ois = null;
+        try {
+            oos = new ObjectOutputStream(new FileOutputStream(PATH));
+            SerEmployee se = new SerEmployee("John Doe");
+            System.out.println(se);
+            oos.writeObject(se);
+            oos.close();
+            oos = null;
+            System.out.println("se object written to file");
+            ois = new ObjectInputStream(new FileInputStream(PATH));
+            se = (SerEmployee) ois.readObject();
+            System.out.println("se object read from file");
+            System.out.println(se);
+        } catch (ClassNotFoundException cnfe) {
+            cnfe.printStackTrace();
+        } catch (IOException ioe) {
+            ioe.printStackTrace();
+        } finally {
+            if (oos != null)
+                try {
+                    oos.close();
+                } catch (IOException ioe) {
+                    assert false; // shouldn't happen in this context
+                }
+            if (ois != null)
+                try {
+                    ois.close();
+                } catch (IOException ioe) {
+                    assert false; // shouldn't happen in this context
+                }
+        }
+    }
+
+}
+```
+
+输出
+
+```java
+John Doe
+java.io.InvalidClassException: com.jasu.nio._04_Streams.SerEmployee; no valid constructor
+	at java.io.ObjectStreamClass$ExceptionInfo.newInvalidClassException(ObjectStreamClass.java:157)
+	at java.io.ObjectStreamClass.checkDeserialize(ObjectStreamClass.java:862)
+	at java.io.ObjectInputStream.readOrdinaryObject(ObjectInputStream.java:2034)
+	at java.io.ObjectInputStream.readObject0(ObjectInputStream.java:1567)
+	at java.io.ObjectInputStream.readObject(ObjectInputStream.java:427)
+	at com.jasu.nio._04_Streams.SerializationDemo.main(SerializationDemo.java:31)
+```
+
+因为Employee1 没有声明无参构造器。你可以用adapter pattern解决这个问题（(https://en.wikipedia.org/wiki/Adapter_pattern ）。
+
+此外的例子：
+
+***Listing 4-12. Solving Problematic Deserialization*** 
+
+```java
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.Serializable;
+class Employee
+{
+ private String name;
+ Employee(String name)
+ {
+ this.name = name;
+ }
+ @Override
+ public String toString()
+ {
+ return name;
+ }
+}
+class SerEmployee implements Serializable
+{
+ private Employee emp;
+ private String name;
+ SerEmployee(String name)
+ {
+ this.name = name;
+ emp = new Employee(name);
+ }
+ private void writeObject(ObjectOutputStream oos) throws IOException
+ {
+ oos.writeUTF(name);
+ }
+ private void readObject(ObjectInputStream ois)
+ throws ClassNotFoundException, IOException
+ {
+ name = ois.readUTF();
+ emp = new Employee(name);
+ }
+ @Override
+ public String toString()
+ {
+ return name;
+ }
+}public class SerializationDemo
+{
+ public static void main(String[] args)
+ {
+ ObjectOutputStream oos = null;
+ ObjectInputStream ois = null;
+ try
+ {
+ oos = new ObjectOutputStream(new FileOutputStream("employee.dat"));
+ SerEmployee se = new SerEmployee("John Doe");
+ System.out.println(se);
+ oos.writeObject(se);
+ oos.close();
+ oos = null;
+ System.out.println("se object written to file");
+ ois = new ObjectInputStream(new FileInputStream("employee.dat"));
+ se = (SerEmployee) ois.readObject();
+ System.out.println("se object read from file");
+ System.out.println(se);
+ }
+ catch (ClassNotFoundException cnfe)
+ {
+ cnfe.printStackTrace();
+ }
+ catch (IOException ioe)
+ {
+ ioe.printStackTrace();
+ }
+ finally
+ {
+ if (oos != null)
+ try
+ {
+ oos.close();
+ }
+ catch (IOException ioe)
+ {
+ assert false; // shouldn't happen in this context
+ }
+ if (ois != null)
+ try
+ {
+ ois.close();
+ }public class SerializationDemo
+{
+ public static void main(String[] args)
+ {
+ ObjectOutputStream oos = null;
+ ObjectInputStream ois = null;
+ try
+ {
+ oos = new ObjectOutputStream(new FileOutputStream("employee.dat"));
+ SerEmployee se = new SerEmployee("John Doe");
+ System.out.println(se);
+ oos.writeObject(se);
+ oos.close();
+ oos = null;
+ System.out.println("se object written to file");
+ ois = new ObjectInputStream(new FileInputStream("employee.dat"));
+ se = (SerEmployee) ois.readObject();
+ System.out.println("se object read from file");
+ System.out.println(se);
+ }
+ catch (ClassNotFoundException cnfe)
+ {
+ cnfe.printStackTrace();
+ }
+ catch (IOException ioe)
+ {
+ ioe.printStackTrace();
+ }
+ finally
+ {
+ if (oos != null)
+ try
+ {
+ oos.close();
+ }
+ catch (IOException ioe)
+ {
+ assert false; // shouldn't happen in this context
+ }
+ if (ois != null)
+ try
+ {
+ ois.close();
+ }catch (IOException ioe)
+ {
+ assert false; // shouldn't happen in this context
+ }
+ }
+ }
+}
+
+```
+
+输出：
+
+```
+John Doe
+se object written to file
+se object read from file
+John Doe
+```
+
+##### Externalization 
+
+Java支持 externalization 。不像默认/自定义serialization/deserialization , externalization提供序列化反序列化的完整控制。
+
+**注意**：Externalization 帮你改善基于反射的序列化反序列化性能，给你完全控制那些field参与序列化。
+
+通过`java.io.Externalizable`支持Externalization。接口有以下方法：
+
+- void writeExternal(ObjectOutput out)  
+- void readExternal(ObjectInput in)  
+
+如果类实现` Externalizable `，例子：
+
+***Listing 4-13. Refactoring Listing 4-9’s Employee Class to Support Externalization*** 
+
+```java
+import java.io.Externalizable;
+import java.io.IOException;
+import java.io.ObjectInput;
+import java.io.ObjectOutput;
+public class Employee implements Externalizable
+{
+ private String name;
+ private int age;
+ public Employee()
+ {
+ System.out.println("Employee() called");
+ } public Employee(String name, int age)
+ {
+ this.name = name;
+ this.age = age;
+ }
+ public String getName() { return name; }
+ public int getAge() { return age; }
+ @Override
+ public void writeExternal(ObjectOutput out) throws IOException
+ {
+ System.out.println("writeExternal() called");
+ out.writeUTF(name);
+ out.writeInt(age);
+ }
+ @Override
+ public void readExternal(ObjectInput in)
+ throws IOException, ClassNotFoundException
+ {
+ System.out.println("readExternal() called");
+ name = in.readUTF();
+ age = in.readInt();
+ }
+}
+
+
+```
+
+输出：
+
+```java
+writeExternal() called
+Employee() called
+readExternal() called
+John Doe
+36
+```
+
+#### PrintStream 
+
+在全部的stream类里，`PrintStream `是古怪的：按命名约定应该叫` PrintOutputStream `。这个filter output stream 类写输入数据项的字符串形式到底层输出流。
+
+**注意**：`PrintStream `会使用默认字符编码转化string为字节（5章讨论）。`PrintStream `不支持不同的编码，你该用等价的` PrintWriter `代替。然而因为standard I/O，你需要了解`PrintStream `。
+
+`PrintStream `实例是print streams ，它的方法print() and println() ，打印integers, floating-point values, and other data items 的字符串形式到下面的输出流。
+
+**注意**： line terminator （也叫 line separator ），不一定newline（也通常被称为换行 ），line separator 是系统属性`line.separator. `windows是回车码（13）也就是` \r `，紧接着实际的newline/line feed code(10)，`\n`，linux只返回newline/line feed code 。
+
+**警告**：不要在你用 print() or println() 方法输出的字符串上硬编码` \n escape sequence `。这样是不稳定的。
+
+有3个有用的特点：
+
+- 不像其他stream，不会从底层抛出`IOException`。而是有checkError() 方法
+- 可以被创建来自动刷新输出到底层输出流。字节写入自动flush()  ，println()被调用，或者一个newline被写。
+- 声明了一个`format(String format, Object... args)` 形式用于得到格式化输出。是用的Formatter类，11章介绍。也有便利的`printf(String format, Object... args) `方法。
+
+#### Revisiting Standard I/O 
+
+System.in, System.out, and System.err are formally described by the following class fields in the System class: 
+
+- public static final InputStream in 
+- public static final PrintStream out 
+- public static final PrintStream err
+
+对应standard input, standard output, and standard error streams 。
+
+当你调用 System.in.read(), 来自于绑定到in的source。当标准输入时，Java初始化以引用键盘或文件流被重定向到文件。` out/err `设计屏幕或文件。你可以编程式指定input source, output destination, and error destination 通过`System`的方法：
+
+- void setIn(InputStream in) 
+- void setOut(PrintStream out) 
+- void setErr(PrintStream err) 
+
+RedirectIO application例子：
+
+***Listing 4-14. Programmatically Specifying the Standard Input Source and Standard Output/Error Destinations*** 
+
+```
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.PrintStream;
+public class RedirectIO
+{
+ public static void main(String[] args) throws IOException
+ {
+ if (args.length != 3)
+ {
+ System.err.println("usage: java RedirectIO stdinfile " +
+ "stdoutfile stderrfile");
+ return;
+ }
+ System.setIn(new FileInputStream(args[0]));
+ System.setOut(new PrintStream(args[1]));
+ System.setErr(new PrintStream(args[2]));
+ int ch;
+ while ((ch = System.in.read()) != -1)
+ System.out.print((char) ch);
+ System.err.println("Redirected error output");
+ }
+}
+
+```
+
+run `java RedirectIO RedirectIO.java out.txt err.txt `。
+
+#### Exercise
+
+```
+The following exercises are designed to test your understanding of Chapter 4’s content:
+1. What is a stream?
+2. What is the purpose of OutputStream’s flush() method?
+3. True or false: OutputStream’s close() method automatically
+flushes the output stream.
+4. What is the purpose of InputStream’s mark(int) and reset()
+methods?
+5. How would you access a copy of a ByteArrayOutputStream
+instance’s internal byte array?
+6. True or false: FileOutputStream and FileInputStream provide
+internal buffers to improve the performance of write and read
+operations.
+7. Why would you use PipedOutputStream and PipedInputStream?
+8. Define filter stream.
+9. What does it mean for two streams to be chained together?
+10. How do you improve the performance of a file output stream or a file
+input stream?
+11. How do DataOutputStream and DataInputStream support
+FileOutputStream and FileInputStream?
+12. What is object serialization and deserialization?
+13. What three forms of serialization and deserialization does Java
+support?
+14. What is the purpose of the Serializable interface?
+15. What does the serialization mechanism do when it encounters an
+object whose class doesn’t implement Serializable?
+16. Identify the three stated reasons for Java not supporting unlimited
+serialization.
+17. How do you initiate serialization? How do you initiate deserialization?
+18. True or false: Class fields are automatically serialized.
+19. What is the purpose of the transient reserved word?
+20. What does the deserialization mechanism do when it attempts to
+deserialize an object whose class has changed?
+21. How does the deserialization mechanism detect that a serialized
+object’s class has changed?
+22. How can you add an instance field to a class and avoid trouble when
+deserializing an object that was serialized before the instance field
+was added? What JDK tool can you use to help with this task?
+23. How do you customize the default serialization and deserialization
+mechanisms without using externalization?
+24. How do you tell the serialization and deserialization mechanisms to
+serialize or deserialize the object’s normal state before serializing or
+deserializing additional data items?
+25. How does externalization differ from default and custom serialization
+and deserialization?
+26. How does a class indicate that it supports externalization?
+27. True or false: During externalization, the deserialization mechanism
+throws InvalidClassException with a “no valid constructor”
+message when it doesn’t detect a public noargument constructor.
+28. What is the difference between PrintStream’s print() and
+println() methods?
+29. What does PrintStream’s noargument void println() method
+accomplish?
+30. How do you redirect the standard input, standard output, and standard
+error streams?
+31. Improve Listing 4-1’s Copy application (performance wise) by using
+BufferedInputStream and BufferedOutputStream. Copy
+should read the bytes to be copied from the buffered input stream and
+write these bytes to the buffered output stream.
+32. Create a Java application named Split for splitting a large file into
+a number of smaller partx files (where x starts at 0 and increments;
+for example, part0, part1, part2, and so on). Each partx file
+(except possibly the last partx file, which holds the remaining bytes)
+will have the same size. This application has the following usage
+syntax: java Split path. Furthermore, your implementation must
+use the BufferedInputStream, BufferedOutputStream, File,
+FileInputStream, and FileOutputStream classes.
+```
+
+#### Summary 
+
+Java uses streams to perform I/O operations. A stream is an ordered sequence of bytes of an arbitrary length. Bytes flow over an output stream from an application to a destination and flow over an input stream from a source to an application. 
+
+The java.io package provides several classes that identify various stream destinations and sources. These classes are descendants of the abstract OutputStream and InputStream classes. FileOutputStream and BufferedInputStream are examples. 
+
+This chapter explored OutputStream and InputStream, followed by the byte array, file, piped, filter, buffered, data, object, and print streams. While covering object streams, it introduced the topics of serialization and externalization. The chapter concluded by revisiting standard I/O. 
+
+### Chapter 5 Writers and Readers 
+
+Java的streams对字节序列流很有用，但是对字符流不好，因为字节流和字符流是两种东西：一个字节是8-bit data item ，一个字符是16-bit data item 。`char and java.lang. String `天生的处理字符而不是字节。
+
+更重要的是byte streams 不了解character sets （字符集，整型值之间的映射，称为代码点，和符号，如Unicode ）和 character encodings （字符集合的成员之间的映射，以及为效率编码这些字符的字节序列，比如UTF-8 ）
+
+#### A BRIEF HISTORY OF CHARACTER SETS AND CHARACTER ENCODINGS 
+
+如果你需要 stream characters ，你需要用Java’s writer and reader 类，它们支持character I/O （用chart工作而不是byte）。此外， writer and reader 也考虑了字符编码。
+
+#### Writer and Reader Classes Overview 
+
+层次结构：
+
+![1533093724082](https://github.com/konekos/notes/blob/master/src/pic/1533093724082.png?raw=true)
+
+![1533093741720](https://github.com/konekos/notes/blob/master/src/pic/1533093741720.png?raw=true)
