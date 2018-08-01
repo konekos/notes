@@ -2522,3 +2522,278 @@ NIO是基于buffer的，它的内容通过channels被发送到 I/O services 或�
 这4个属性联系如下：0 <= mark <= position <= limit <= capacity 
 
 ![1533108252365](https://github.com/konekos/notes/blob/master/src/pic/1533108252365.png?raw=true)
+
+buffer最多可以存储7个元素。Mark初始未被定义，position被设置为0，limit被设置为容量（7），你只可以访问0-6 positions。
+
+#### Buffer and its Children 
+
+ Buffer’s 的方法：
+
+***Table 6-1. Buffer Methods*** 
+
+| Method                            | Description                                                  |
+| --------------------------------- | ------------------------------------------------------------ |
+| Object array()                    | 返回支持这个buffer的array。这个方法用于允许  array-backed buffers 更效率地传递给 native code 。具体的子类重写这个方法提供更强大的类型返回值。当buffer由一个只读数组支撑返回` java.nio.ReadOnlyBufferException `，不可访问数组返回` java.lang.UnsupportedOperationException `。 |
+| int arrayOffset()                 | 返回buffer支持数组内第一个buffer元素的offset。当buffer由一个数组支撑， buffer position p 对应array index p +  arrayOffset() 。在调用此方法前调用  hasArray() 确保buffer有可访问的支撑数组。只读抛出  ReadOnlyBufferException ，不可访问抛出 UnsupportedOperationException 。 |
+| int capacity()                    | 返回数组的容量                                               |
+| Buffer clear()                    | 清空buffer。position设置为0，limit被设置为容量，mark被丢弃。这个方法不删除buffer的数据，但是方法名就像删除了似得，因为大部分要使用这个方法的情况都是删除。 |
+| Buffer flip()                     | 翻转这个buffer。limit被设置为当前position，然后position被设置为0。Mark被定义的话会被丢弃。 |
+| boolean hasArray()                | 如果  buffer 由array支撑且不是只读返回true；否则false。返回true时， array() and arrayOffset() 都可以安全调用。 |
+| boolean hasRemaining()            | 如果至少一个元素残留在buffer返回true（就是，在当前position和limit之间）。否则，返回false。 |
+| boolean isDirect()                | 当buffer是  direct byte buffer 返回true。否则false           |
+| boolean isReadOnly()              | buffer read-only返回true。                                   |
+| int limit()                       | 返回limit                                                    |
+| Buffer limit(int newLimit)        | 设置limit为newLimit。当position大于newLimit，position被设置为newLimit。当mark被定义为大于newLimit，mark被丢弃。newLimit是负的或者大于容量抛出` java.lang.IllegalArgumentException `；否则返回这个buffer。 |
+| Buffer mark()                     | 设置Mark到它的position，返回buffer。                         |
+| int position()                    | 返回position                                                 |
+| Buffer position (int newPosition) | 设置position为newPosition。当Mark被定义大于newPosition，Mark被丢弃。为负或大于当前limit抛出`  IllegalArgumentException `；否则返回buffer。 |
+| int remaining()                   | 返回当前position和limit之间元素的数量                        |
+| Buffer reset()                    | 重置buffer的position到先前的Mark位置。调用这个方法不会改变和丢弃mark的值。mark没设置抛出` java.nio.InvalidMarkException `；否则返回buffer。 |
+| Buffer rewind()                   | 倒回去，然后返回这个buffer。position被设为0，mark被丢弃。    |
+
+上面方法很多都返回buffer实例，所以可以链式编程。例如：
+
+```java
+buf.mark();
+buf.position(2);
+buf.reset();
+```
+
+可以用：
+
+```java
+buf.mark().position(2).reset();
+```
+
+6-1也表明所有buffer都可以读，但是不是所有都能被写——例如，一个由memory-mapped file支撑的buffer是只读的。一定不能写只读的buffer；否则抛出`ReadOnlyBufferException `。试图写的时候调用isReadOnly() 看是否可以写。
+
+**警告**：Buffers不是线程安全的。你想从多线程访问buffer必须采取同步。
+
+`java.nio `包有几个抽象类拓展了Buffer，除了Boolean之外，每个基本类型都有一个 ： ByteBuffer, CharBuffer, DoubleBuffer, FloatBuffer, IntBuffer, LongBuffer, and ShortBuffer。此外，也有MappedByteBuffer 。
+
+**注意**：操作系统执行面向字节的I/O，你使用 ByteBuffer来创建byte-oriented buffers 。其他primitive-type buffer 类让你创建multibyte view buffers （discussed later ），然后你可以概念性地对字符，双精度浮点，32-bits integer等等执行I/O。然而，I/O操作是字节的流运行的。
+
+演示例子：
+
+***Listing 6-1. Demonstrating a Byte-Oriented Buffer*** 
+
+```java
+import java.nio.Buffer;
+import java.nio.ByteBuffer;
+public class BufferDemo
+{
+ public static void main(String[] args)
+ {
+ Buffer buffer = ByteBuffer.allocate(7);
+ System.out.println("Capacity: " + buffer.capacity());
+ System.out.println("Limit: " + buffer.limit());
+ System.out.println("Position: " + buffer.position());
+ System.out.println("Remaining: " + buffer.remaining());
+ System.out.println("Changing buffer limit to 5");
+ buffer.limit(5);
+ System.out.println("Limit: " + buffer.limit());
+ System.out.println("Position: " + buffer.position());
+ System.out.println("Remaining: " + buffer.remaining());
+ System.out.println("Changing buffer position to 3");
+ buffer.position(3);
+ System.out.println("Position: " + buffer.position());
+ System.out.println("Remaining: " + buffer.remaining());
+ System.out.println(buffer);
+ }
+}
+
+```
+
+不能实例化buffer因为是抽象的，而是用ByteBuffer 类的 allocate() 方法分配一个7字节的buffer。
+
+输出：
+
+```java
+Capacity: 7
+Limit: 7
+Position: 0
+Remaining: 7
+Changing buffer limit to 5
+Limit: 5
+Position: 0
+Remaining: 5
+Changing buffer position to 3
+Position: 3
+Remaining: 2
+java.nio.HeapByteBuffer[pos=3 lim=5 cap=7]
+```
+
+最后的buffer是一个` java.nio.HeapByteBuffer `实例。
+
+#### Buffers in Depth 
+
+这节深入探索buffer创建，读写，flipping，marking， Buffer subclass operations ，byte ordering和direct buffers 。
+
+**注意**：虽然 primitive-type buffer类有相似的能力，ByteBuffer 是最大最全能通用的。毕竟，字节是操作系统用来传递data items的最小单元。
+
+##### Buffer Creation 
+
+ByteBuffer and the other primitive-type buffer类声明了很多方法创建一个该类型的buffer。例如ByteBuffer：
+
+- ByteBuffer allocate(int capacity): 分配一个新的指定容量的byte buffer。position是0，limit是容量，mark未定义，每个元素被初始化为0。有一个支撑数组，offset是0。容量为负抛出`IllegalArgumentException `。
+
+- ByteBuffer allocateDirect(int capacity):  分配一个新的指定容量的direct byte buffer (discussed later) 。position是0，limit是容量，mark未定义，每个元素被初始化为0。它是否有一个支撑数组是未知的。容量为负抛出`IllegalArgumentException `。  
+
+  在JDK 7之前，这个方法分配的direct buffers 和page边界对齐。在JDK 7，实现改变了，不再是页面对齐的。减少了创建大量buffers应用的内存需求。（To learn about an operating system’s paging memory-management mechanism, which is based on pages, check out Wikipedia’s “Paging” topic at https://en.wikipedia.org/wiki/Paging ）
+
+- ByteBuffer wrap(byte[] array):  将一个字节数组封装到buffer。新buffer是数组支撑的；就是，改变buffer就会改变数组，反之亦然。容量和limit是array.length ，position为0，Mark未定义。array的offset是0。
+
+- ByteBuffer wrap(byte[] array, int offset, int length)   将一个字节数组封装到buffer。新buffer是数组支撑的。新buffer的容量为array.length，position被设置为offset，limit被设置为offset+length，mark未定义。数组offset是0。是offset是负，或大于array.length或者当length是负或大于array.length - offset 抛出` java.lang. IndexOutOfBoundsException `。
+
+下面两种方式创建buffer：
+
+```java
+ByteBuffer buffer = ByteBuffer.allocate(10);
+byte[] bytes = new byte[200];
+ByteBuffer buffer2 = ByteBuffer.wrap(bytes);
+```
+
+```java
+buffer = ByteBuffer.wrap(bytes, 10, 50);
+```
+
+上面这个创建了一个buffer，position=10，limit=50，capacity=200。虽然看起来buffer只能访问这个数组的子串，但你可以通过 array()  方法访问这些支撑数组（就是byte[] array()  ）。并且hasArray()  返回true。（当 hasArray() 返回true，你需要调用arrayOffset() 得到数组里第一个data item的offset）
+
+例子：
+
+***Listing 6-2. Creating Byte-Oriented Buffers via Allocation and Wrapping*** 
+
+```java
+import java.nio.ByteBuffer;
+public class BufferDemo
+{
+ public static void main(String[] args)
+ {
+ ByteBuffer buffer1 = ByteBuffer.allocate(10);
+ if (buffer1.hasArray())
+ {
+ System.out.println("buffer1 array: " + buffer1.array());
+ System.out.println("Buffer1 array offset: " +
+ buffer1.arrayOffset());
+ System.out.println("Capacity: " + buffer1.capacity());
+ System.out.println("Limit: " + buffer1.limit());
+ System.out.println("Position: " + buffer1.position());
+ System.out.println("Remaining: " + buffer1.remaining());
+ System.out.println();
+ }
+ byte[] bytes = new byte[200];
+ ByteBuffer buffer2 = ByteBuffer.wrap(bytes);
+ buffer2 = ByteBuffer.wrap(bytes, 10, 50);
+ if (buffer2.hasArray())
+ {
+ System.out.println("buffer2 array: " + buffer2.array());
+ System.out.println("Buffer2 array offset: " +
+ buffer2.arrayOffset());
+ System.out.println("Capacity: " + buffer2.capacity());
+ System.out.println("Limit: " + buffer2.limit());
+ System.out.println("Position: " + buffer2.position());
+ System.out.println("Remaining: " + buffer2.remaining());
+ }
+ }
+}
+
+```
+
+编译运行，输出：
+
+```
+buffer1 array: [B@659e0bfd
+Buffer1 array offset: 0
+Capacity: 10
+Limit: 10
+Position: 0
+Remaining: 10
+buffer2 array: [B@2a139a55
+Buffer2 array offset: 0
+Capacity: 200
+Limit: 60
+Position: 10
+Remaining: 50
+```
+
+除了管理保存在外部数组的数据元素外（via the wrap() 方法），buffer也能管理保存在其他buffers的数据。当你创建一个buffer管理另一个buffer的data，被创建的buffer被认为是*view buffer*。在两个buffer中所做的更改都反映在另一个buffer中。
+
+View buffers 用Buffer子类的duplicate()方法创建。产生的view buffer相当于原始buffer; 两个buffer共享相同的data items且容量相同。然而，每个buffer有它自己的 position, limit, and mark 。当被duplicated 的buffer是read-only或者direct，view buffer 也是read-only或者direct。
+
+考虑以下：
+
+```java
+ByteBuffer buffer = ByteBuffer.allocate(10);
+ByteBuffer bufferView = buffer.duplicate();
+```
+
+两个buffer共享array。此时，position, limit, and (undefined) mark 是一样的。然而，这些属性可以彼此独立于另一个buffer。
+
+也可以调用ByteBuffer’s asxBuffer() 创建view buffers。例如，LongBuffer asLongBuffer() 返回一个view buffer将字节buffer概念化为长整型的buffer。 
+
+**注意**：Read-only view buffers可以调用比如ByteBuffer asReadOnlyBuffer() 的方法创建。任何view buffer改变的尝试导致` ReadOnlyBufferException `。然而，原始buffer内容（假设不是只读）可以变，只读的view buffer将反映这些变化 。
+
+##### Buffer Writing and Reading 
+
+ByteBuffer and the other primitive-type buffer类声明了几个重载的 put() and get() 方法用于写 data items 和从buffer读 data items  。这些方法在需要索引参数的时候是绝对的不需要索引时是相对的。
+
+例如，ByteBuffer声明绝对的ByteBuffer put(int index, byte b) 方法在索引index存储byte b，以及byte get(int index) 方法获取index位置的字节。也声明了相对的 ByteBuffer put(byte b)  方法在当前buffer的position存b然后增加position，以及相对的byte get() 获取buffer当前position的字节并且增加当前position。
+
+绝对的put() and get()方法当索引是负或超出或者等于limit抛出IndexOutOfBoundsException 。相对的 put()  在当前position大于或等于limit时抛出`java.nio.BufferOverflowException `，相对的get() 方法在当前position大于或等于limit时抛出`java.nio.BufferUnderflowException `。另外，两种put()方法都在只读时抛出` ReadOnlyBufferException `。
+
+例子：
+
+***Listing 6-3. Writing Bytes to and Reading Them from a Buffer*** 
+
+```java
+import java.nio.ByteBuffer;
+public class BufferDemo
+{
+ public static void main(String[] args)
+ {
+ ByteBuffer buffer = ByteBuffer.allocate(7);
+ System.out.println("Capacity = " + buffer.capacity());
+ System.out.println("Limit = " + buffer.limit());
+ System.out.println("Position = " + buffer.position());
+ System.out.println("Remaining = " + buffer.remaining());
+ buffer.put((byte) 10).put((byte) 20).put((byte) 30);
+ System.out.println("Capacity = " + buffer.capacity());
+ System.out.println("Limit = " + buffer.limit());
+ System.out.println("Position = " + buffer.position());
+ System.out.println("Remaining = " + buffer.remaining());
+ for (int i = 0; i < buffer.position(); i++)
+ System.out.println(buffer.get(i));
+ }
+}
+```
+
+编译运行输出：
+
+```
+Capacity = 7
+Limit = 7
+Position = 0
+Remaining = 7
+Capacity = 7
+Limit = 7
+Position = 3
+Remaining = 4
+10
+20
+30
+
+```
+
+如图：
+
+![1533118585640](https://github.com/konekos/notes/blob/master/src/pic/1533118585640.png?raw=true)
+
+随后的调用get() 方法没有改变position，还是3。
+
+**技巧**：为获得最高效率，你可以执行批量数据传输，使用ByteBuffer put(byte[] src), ByteBuffer put(byte[] src, int offset, int length), ByteBuffer get(byte[] dst), and ByteBuffer get(byte[] dst, int offset, int length)  来读写字节数组。
+
+##### Flipping Buffers 
+
+在填充buffer后，你必须准备它用于通过channel排干。您通过缓冲区时，通道将访问未定义的数据，超出当前位置。 
+
+要解决这个问题，你可以reset position为0，但是channel怎么知道什么时候到达插入的数据的末尾呢？解决办法是使用limit属性，它表明了buffer活动区间的end。基本上，设置limit到当前position，然后重置current position为0。
