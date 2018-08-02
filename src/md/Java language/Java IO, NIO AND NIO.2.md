@@ -2873,3 +2873,244 @@ And so are you.
 继续，假设你执行了` buffer.position(1).mark(). position(3) `。6-4显示了buffer的状态：
 
 ![1533177587773](https://github.com/konekos/notes/blob/master/src/pic/1533177587773.png?raw=true)
+
+如果你把buffer发到一个channel，字节40会被发送（因为position(3) 现在的position是3），然后position会提到4。如果你接着执行buffer.reset() ；然后把buffer发送给channel，position会被设置到mark (1) ，bytes 20, 30, and 40  （所有从当前位置到limit的字节），会被发到channel（以这个顺序）。
+
+代码：
+
+***Listing 6-5. Marking the Current Buffer Position and Resetting the Current Position to the Marked Position*** 
+
+```java
+import java.nio.ByteBuffer;
+public class BufferDemo
+{
+ public static void main(String[] args)
+ {
+ ByteBuffer buffer = ByteBuffer.allocate(7);
+ buffer.put((byte) 10).put((byte) 20).put((byte) 30).put((byte) 40);
+ buffer.limit(4);
+ buffer.position(1).mark().position(3);
+ System.out.println(buffer.get());
+ System.out.println();
+ buffer.reset();
+ while (buffer.hasRemaining())
+ System.out.println(buffer.get());
+ }
+}
+
+```
+
+输出：
+
+```
+40
+20
+30
+40
+```
+
+**警告**：不要混淆reset() 和clear() 。clear() 方法标记buffer为空而 reset() 改变buffer的当前position到先前mark的位置，或者没标记就抛出` InvalidMarkException `。
+
+##### Buffer Subclass Operations 
+
+ByteBuffer and the other primitive-type buffer类声明了compact() 方法，对压缩buffer很有用，通过复制当前position到limit的所有bytes到buffer的开头。index p = position() 的字节被复制到index 0， index p + 1 的字节复制到index 1，...直到 index limit() - 1 被复制到index n = limit() - 1 - p 。buffer的当前position被设置为n+1，limit被设置为容量。mark被定义就丢弃。
+
+你从一个buffer写数据后调用compact，来解决不是所有buffer内容都被写入的场景。考虑下面：
+
+```
+buf.clear(); // Prepare buffer for use
+while (in.read(buf) != -1)
+{
+ buf.flip(); // Prepare buffer for draining.
+ out.write(buf); // Write the buffer.
+ buf.compact(); // Do this in case of a partial write.
+}
+
+```
+
+compact() 方法调用移动没有被写的buffer数据到buffer开头，然后下次read()可以添加读数据到buffer的数据，而不是重写。
+
+你偶尔可能需要比较buffer的等同或顺序。所有的buffer除了` MappedByteBuffer `都重写了equals() and compareTo() 来执行比较———MappedByteBuffer继承ByteBuffer没重写。
+
+```
+System.out.println(bytBuf1.equals(bytBuf2));
+System.out.println(bytBuf1.compareTo(bytBuf2));
+```
+
+equals()， same element type ， same number of remaining elements ，two sequences of remaining elements ，不取决于starting positions。
+
+compareTo() ，比较顺序，比较sequences of remaining elements lexicographically ，不考虑starting position 。
+
+##### Byte Ordering 
+
+Nonbyte primitive types except for Boolean 由几个字节组成：一个字符或short integer占2个字节，32-bit integer或者一个浮点值占4字节，long integer或双精度浮点值占8字节。这些多字节类型的值被存在连续的内存位置的序列。然而，这些字节的排序可能因操作系统而异。
+
+例如，32-bit long integer 0x10203040 。This value’s four bytes could be stored in memory (from low address to high address) as 10, 20, 30, 40 ；这种编排方式叫 big endian order (the most-significant byte, the “big” end, is stored at the lowest address) 。也可以用40, 30, 20, 10 存；叫little endian order (the least-significant byte, the “little” end, is stored at the lowest address)。
+
+Java提供` java.nio.ByteOrder ` 类帮你处理字节排序在多字节值互写的时候。声明了`ByteOrder nativeOrder() `返回操作系统的ByteOrder 实例。这个实例是 ByteOrder’s BIG_ENDIAN and LITTLE_ENDIAN constants 的其中之一，没有其他的，你可以比较 nativeOrder()的返回值和常数。
+
+多字节类也有提供。
+
+order() 返回的 ByteOrder 可能考虑buffer的创建方式。view buffer的order不能被变。
+
+ByteBuffer 不同与多字节类在字节排序上。默认字节排序总是 big endian ，即使操作系统是little endian 。因为Java’s default byte order 是 big endian ，让类文件和序列化的对象存储数据一致。
+
+声明了 ByteBuffer order(ByteOrder bo) 来改变字节排序。
+
+改变的字节排序对例如 LongBuffer asLongBuffer() 形成的view buffer是可见的。
+
+##### Direct Byte Buffers 
+
+不像多字节buffers， byte buffers 可以作为channel-based I/O 的sources和targets。这不应该是一个惊喜因为操作系统在内存区域执行IO是连续的8字节的序列（不是浮点和32-bit integer）。
+
+操作系统可以直接访问进程的地址空间。例如，操作系统可以直接访问JVM进程地址空间来执行基于字节数组的数据传输操作。然而，JVM可能不会连续地存储字节数组或者它的垃圾收集器把字节数组移动到另一个位置。由于这些限制， direct byte buffers 被创建。
+
+***direct byte buffer***，是一个byte buffer ，与 channels 和native code 交互来执行I/O。direct byte buffer 尝试在内存区域储存字节元素，channel通过native code用字节元素来执行 direct (raw) access ，告诉操作系统直接排干/填充内存区域。
+
+Direct byte buffers是JVM上最有效的执行I/O的方法。尽管你也可以传递nondirect byte buffers给通道，可能产生性能问题，因为nondirect byte buffers不总是能够充当native I/O operations的target。
+
+当传递了一个 nondirect byte buffer ，channel可能需要创建一个临时的direct byte buffer ，复制nondirect byte buffer的内容到direct byte buffer，在临时的direct byte buffer上执行I/O操作，并且复制临时 direct byte buffer的内容到nondirect byte buffer 。临时direct byte buffer会被垃圾收集。
+
+虽然优化了I/O，创建 direct byte buffer可能很昂贵因为在JVM堆之外的内存需要由操作系统分配，建立/拆除这个内存会比这个buffer在堆内的时间更长。
+
+通过`ByteBuffer’s allocateDirect() `得到direct byte buffer。
+
+#### Exercise
+
+```
+The following exercises are designed to test your understanding of Chapter 6’s content:
+1. What is a buffer?
+2. Identify a buffer’s four properties.
+3. What happens when you invoke Buffer’s array() method on a
+buffer backed by a read-only array?
+4. What happens when you invoke Buffer’s flip() method on a buffer?
+5. What happens when you invoke Buffer’s reset() method on a
+buffer where a mark has not been set?
+6. True or false: Buffers are thread-safe.
+7. Identify the classes that extend the abstract Buffer class.
+8. How do you create a byte buffer?
+9. Define view buffer.
+10. How is a view buffer created?
+11. How do you create a read-only view buffer?
+12. Identify ByteBuffer’s methods for storing a single byte in a byte
+buffer and fetching a single byte from a byte buffer.
+13. What causes BufferOverflowException or
+BufferUnderflowException to occur?
+14. What is the equivalent of executing buffer.flip();?
+15. True or false: Calling flip() twice returns you to the original state.
+16. What is the difference between Buffer’s clear() and reset()
+methods?
+17. What does ByteBuffer’s compact() method accomplish?
+18. What is the purpose of the ByteOrder class?
+19. Define direct byte buffer.
+20. How do you obtain a direct byte buffer?
+21. Why could it be expensive to create a direct byte buffer?
+22. Create a ViewBufferDemo application that populates a byte buffer
+with the values 0, 0x6e, 0, 0x69, 0, 0x6f; creates a character view
+buffer; and iterates over the view buffer, outputting each character.
+```
+
+#### Summary 
+
+A buffer is an NIO object that stores a fixed amount of data to be sent to or received from an I/O service. It sits between an application and a channel that writes the buffered data to the service or reads the data from the service and deposits it into the buffer. 
+
+Buffers possess capacity, limit, position, and mark properties. These four properties are related as follows: 0 <= mark <= position <= limit <= capacity. 
+
+Buffers are implemented by abstract classes that derive from the abstract Buffer class. These classes include ByteBuffer, CharBuffer, DoubleBuffer, FloatBuffer, IntBuffer, LongBuffer, and ShortBuffer. Furthermore, ByteBuffer is subclassed by the abstract MappedByteBuffer class. 
+
+In this chapter, you learned how to create buffers (including view buffers), write and read buffer contents, flip buffers, mark buffers, and perform additional operations on buffers such as compaction. You also learned about byte ordering and direct byte buffers. 
+
+### Chapter 7 Channels 
+
+Channel协同buffer执行高性能I/O。这章介绍channel类型。
+
+#### Introducing Channels 
+
+*channel*是一个对象代表一个到 hardware device, a file, a network socket, an application component, or another entity(能读写和执行其他I/O操作)的一个 open connection 。channels效率地在byte  buffers 和操作系统 I/O service sources or destinations之间传递数据。
+
+**注意**：Channels是访问 I/O services 的gateways 。Channels使用byte buffers作为端点传递和接收数据。
+
+在操作系统文件句柄（ file handle ，Windows）/文件描述符（file descriptor ） 与 Channel之间总存在一一对应。当你在file context使用channel，channel总是被连接到一个打开的文件描述符。尽管channel比 file descriptors更抽象，他们仍然能够对操作系统的I/O设施进行建模。
+
+#### Channel and Its Children 
+
+通过`java.nio.channels` and `java.nio.channels.spi `提供channel支持。应用程序与位于前包中的类型进行交互 ；定义新的selector providers的开发人员使用后包。
+
+所有的channels都是最终实现了`java.nio.channels.Channel `接口的类的实例。Channel声明下面的方法：
+
+- void close():  关闭channel。当channel已经关闭，调用close()无效。如果另一个线程已经调用了close()，一个新的close()调用会在第一个调用结束之前阻塞住，之后 close() 没有效果地返回。I/O错误抛出` java.io.IOException`。在channel关闭后，任何在它上面尝试I/O操作都会抛出`java.nio. channels.ClosedChannelException`。
+- boolean isOpen():  返回channel的开闭状态。
+
+这些方法表明只有两个操作是对所有channel通用：关闭channel和确定打开或关闭状态。为了支持I/O，channel被扩展为`java.nio.channels. WritableByteChannel `和`java.nio.channels.ReadableByteChannel `接口：
+
+- WritableByteChannel 声明了一个抽象的int write(ByteBuffer buffer) 方法，从buffer到一个序列的字节到当前channel。返回实际被写的字节数量。当channel没有开放写抛出`java.nio.channels.NonWritableChannelException`，channel关闭了抛出` java.nio. channels.ClosedChannelException`，写的时候另一个线程关闭了channel抛出`java.nio.channels.AsynchronousCloseException`，当写操作执行的时候当前线程被另一个线程打断了（从而关闭通道并设置当前线程的中断状态）抛出`java.nio.channels.ClosedByInterruptException`，I/O error 抛出`IOException`。
+- ReadableByteChannel 声明了抽象read(ByteBuffer buffer) 方法，从当前channel读取字节到buffer。返回实际读取的字节数（没有字节可读返回-1）。当channel没开放读抛出`java.nio.channels. NonReadableChannelException`，channel关闭了抛出`ClosedChannelException`，读的时候另一个线程关闭了channel抛出`java.nio.channels.AsynchronousCloseException`，当读操作执行的时候当前线程被另一个线程打断了抛出`java.nio.channels.ClosedByInterruptException`,从而关闭通道并设置当前线程的中断状态;I/O error 抛出`IOException`。
+
+**注意**：一个只实现了WritableByteChannel or ReadableByteChannel的channel类是单向的。从可写的byte channel读或者从可读的byte channel写都导致异常抛出。
+
+你可以使用 instanceof  操作符确定一个channel实例实现了那个接口。因为测试这两个接口很尴尬，Java提供` java.nio.channels.ByteChannel `接口，是一个空的标记接口继承了这两个接口。当你要了解一个channel是不是双向的，使用`channel instanceof ByteChannel `会很方便。
+
+Channel也被扩展为`java.nio.channels.InterruptibleChannel `接口。 InterruptibleChannel接口描述了一个可以被异步closed and interrupted 的channel。接口重写了父接口close() 方法的header，表示了这个方法的channel约束的附加规定：任何在这个channel线程的I/O操作被阻塞都会收到`AsynchronousCloseException `（IOException 的派生）。
+
+实现这个接口的channel可异步*closeable*：当一个线程带一个可中断channel上在I/O操作阻塞了，另一个线程可以调用channel的close()方法。这导致被阻塞的线程收到一个被抛出的` AsynchronousCloseException `实例。
+
+实现这个接口的channel也是*interruptible*：当一个线程带一个可中断channel上在I/O操作阻塞了，另一个线程可以调用channel的interrupt()方法。这样会使channel关闭，被阻塞的线程收到`ClosedByInterruptException `实例，并有它的nterrupt status set 。（当一个线程的 interrupt status 被设置，并且在channel上调用阻塞的I/O操作 ，channel被关闭，线程马上收到`ClosedByInterruptException `实例；它的中断状态将保持设置 ）
+
+NIO的设计者当阻塞线程被打断选择关闭channel，因为他们不能找到一个方式去可靠处理打断的I/O操作，通过操作系统用相同的方式。保证确定性行为的唯一方式就是关闭channel。
+
+**技巧**：你可以用类似` channel instanceof InterruptibleChannel `来确定 channel 是不是支持`asynchronous closing and interruption`。
+
+除了channels，有2种方式获取channel：
+
+- `java.nio.channels` 包提供了一个Channels utility类，它有2个方法从streams得到channel。下面每个方法，当channel是关闭的，stream也是关闭的，并且channel没有被 buffered。
+  - WritableByteChannel newChannel(OutputStream outputStream) 对给定输出流返回一个writable byte channel 
+  - ReadableByteChannel newChannel(InputStream inputStream)  对给定输入流返回一个 readable byte channel
+- 很多 classic I/O 类被改造支持channel创建。例如，`java.io.RandomAccessFile `声明了FileChannel getChannel()  方法得到一个 file channel ，`java.net.Socket `声明了 SocketChannel getChannel() 方法返回一个socket channel。
+
+例子：
+
+***Listing 7-1. Copying Bytes from an Input Channel to an Output Channel*** 
+
+```java
+@Test
+    public void testUseChannelCopyFile() throws IOException {
+        try (ReadableByteChannel src = Channels.newChannel(System.in);
+             WritableByteChannel dest = Channels.newChannel(System.out)) {
+            copyAlt(src, dest);
+        }
+    }
+
+    static void copy(ReadableByteChannel src, WritableByteChannel dest) throws IOException {
+        ByteBuffer buffer = ByteBuffer.allocateDirect(2048);
+        while (src.read(buffer) != -1) {
+            buffer.flip();
+            dest.write(buffer);
+            buffer.compact();
+        }
+        buffer.flip();
+        while (buffer.hasRemaining()) {
+            dest.write(buffer);
+        }
+    }
+
+    static void copyAlt(ReadableByteChannel src, WritableByteChannel dest) throws IOException {
+        ByteBuffer buffer = ByteBuffer.allocateDirect(2048);
+        while (src.read(buffer) != -1) {
+            buffer.flip();
+            while (buffer.hasRemaining()) {
+                dest.write(buffer);
+            }
+            buffer.clear();
+        }
+    }
+```
+
+7-1展示了2种方法从标准输入流复制字节到标准输出流。在copy() 方法，目的是最小化操作系统I/O调用（通过write() 调用），尽管更多的数据最终作为compact() 方法调用的结果被复制。第二种方法，copyAlt() ，目标是消除数据复制，尽管可能会出现更多的操作系统I/O调用。 
+
+ copy() and copyAlt() 方法首先分配direct byte buffer （上章最后一节），然后一个while循环持续从source channel读字节，直到end-of-input （read() returns -1 ）。随着读取，buffer被 flipped 然后可以被排干。下面是方法的分歧点：
+
+- copy() 方法的while循环只调用了write()一次。因为 write() 可能没完全排干buffer， compact()  被调用在下次读之前compact buffer。Compaction 确保没被写的buffer内容在下次读操作不会被覆盖。循环之后，flip buffer，准备排干任何剩下的内容，然后用 hasRemaining() and write() 完成buffer的排干。
+- copyAlt() 方法while循环里还有个while循环，使用hasRemaining() and write() 持续排干buffer，直到buffer清空。然后clear()  ，清空buffer然后在下次read调用可以被充满。
+
+**注意**：认识到单个write() 方法调用不能输出buffer的全部内容是很重要的。类似地，单个的 read()  也可能不会完全充满buffer。
+
