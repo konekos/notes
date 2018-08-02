@@ -2797,3 +2797,79 @@ Remaining = 4
 在填充buffer后，你必须准备它用于通过channel排干。您通过缓冲区时，通道将访问未定义的数据，超出当前位置。 
 
 要解决这个问题，你可以reset position为0，但是channel怎么知道什么时候到达插入的数据的末尾呢？解决办法是使用limit属性，它表明了buffer活动区间的end。基本上，设置limit到当前position，然后重置current position为0。
+
+你可以执行以下代码完成这个任务，也会清除所有定义的mark：
+
+```java
+buffer.limit(buffer.position()).position(0);
+```
+
+然而，有一个更简便的做法：
+
+```java
+buffer.flip();
+```
+
+两种情况，buffer都准备好去排干了。
+
+假设`buffer.flip() `在listing 6-3最后执行，figure 6-3 表明了 flip() 之后的buffer状态：
+
+![1533175926471](https://github.com/konekos/notes/blob/master/src/pic/1533175926471.png?raw=true)
+
+调用 buffer.remaining() 返回3。这个值表明了能用于排干的字节数。
+
+Listing 6-4 给出另一个buffer-flipping示范，使用了character buffer。
+
+***Listing 6-4. Writing Characters to and Reading Them from a Character Buffer*** 
+
+```java
+import java.nio.CharBuffer;
+public class BufferDemo
+{
+ public static void main(String[] args)
+ {
+ String[] poem =
+ {
+ "Roses are red",
+ "Violets are blue",
+ "Sugar is sweet",
+ "And so are you."
+ };
+ CharBuffer buffer = CharBuffer.allocate(50);
+ for (int i = 0; i < poem.length; i++)
+ {
+ // Fill the buffer.
+ for (int j = 0; j < poem[i].length(); j++)
+ buffer.put(poem[i].charAt(j));
+ // Flip the buffer so that its contents can be read.
+ buffer.flip();
+ // Drain the buffer.
+ while (buffer.hasRemaining())
+ System.out.print(buffer.get());
+ // Empty the buffer to prevent BufferOverflowException.
+ buffer.clear();
+ System.out.println();
+ }
+ }
+}
+
+```
+
+输出：
+
+```
+Roses are red
+Violets are blue
+Sugar is sweet
+And so are you.
+```
+
+**注意**：rewind()和 flip() 类似但是忽略limit。并且，调用flip()2次也不会得到buffer的初始状态，而是size为0。调用put() 抛出`BufferOverflowException `，调用get()抛出`BufferUnderflowException `，get(int i)抛出` IndexOutOfBoundsException `。
+
+##### Marking Buffers 
+
+使用mark() 标记buffer，随后调用reset()返回标记位置。例如，假设你执行了`ByteBuffer buffer = ByteBuffer.allocate(7);, `然后`buffer.put((byte) 10).put((byte) 20).put((byte) 30).put((byte) 40);, `然后`buffer.limit(4);. `。当前position和limit都为4。
+
+继续，假设你执行了` buffer.position(1).mark(). position(3) `。6-4显示了buffer的状态：
+
+![1533177587773](https://github.com/konekos/notes/blob/master/src/pic/1533177587773.png?raw=true)
