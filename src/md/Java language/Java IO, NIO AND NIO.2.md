@@ -3114,3 +3114,228 @@ NIO的设计者当阻塞线程被打断选择关闭channel，因为他们不能�
 
 **注意**：认识到单个write() 方法调用不能输出buffer的全部内容是很重要的。类似地，单个的 read()  也可能不会完全充满buffer。
 
+#### Channels in Depth 
+
+本节深入了解exploring scatter/gather I/O, file channels, socket channels, and pipes 。
+
+##### Scatter/Gather I/O 
+
+Channel提供了跨多个buffer执行单一I/O操作的功能。也就是*scatter/gather I/O*（也叫*vectored I/O*）。
+
+在写操作的context，几个buffer的内容按顺序被集中（排干），然后通过channel送到目的地。这些buffers不需要有等同的容量。在读操作的context，channel的内容按顺序被分散（填充）到多个buffer；每个buffer被填充到limit，直到channel空了或buffer全部空间都用了。
+
+**注意**：现代操作系统提供了API支持vectored I/O 消除系统调用（或至少减少），因此提高性能。例如，Win32/Win64 APIs 提供了ReadFileScatter() and WriteFileGather() 。
+
+Java提供`java.nio.channels.ScatteringByteChannel `接口支持 scattering，以及`java.nio.channels.GatheringByteChannel `接口来支持gathering 。
+
+ScatteringByteChannel 提供以下方法：
+
+- long read(ByteBuffer[] buffers, int offset, int length) 
+- long read(ByteBuffer[] buffers) 
+
+GatheringByteChannel 方法：
+
+- long write(ByteBuffer[] buffers, int offset, int length) 
+- long write(ByteBuffer[] buffers) 
+
+例子：
+
+***Listing 7-2. Demonstrating Scatter/Gather*** 
+
+```java
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.Channels;
+import java.nio.channels.GatheringByteChannel;
+import java.nio.channels.ScatteringByteChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-03 10:47
+ */
+public class ChannelDemo1 {
+    public static void main(String[] args) throws IOException {
+        ScatteringByteChannel src;
+        FileInputStream fis = new FileInputStream("E:\\SpringSourceCode\\src\\main\\resources\\image.txt");
+        src = (ScatteringByteChannel) Channels.newChannel(fis);
+        ByteBuffer buffer1 = ByteBuffer.allocateDirect(5);
+        ByteBuffer buffer2 = ByteBuffer.allocateDirect(3);
+        ByteBuffer[] buffers = {buffer1, buffer2};
+        src.read(buffers);
+
+        buffer1.flip();
+        while (buffer1.hasRemaining()) {
+            System.out.println(buffer1.get());
+        }
+
+        System.out.println();
+
+        buffer2.flip();
+        while (buffer2.hasRemaining()) {
+            System.out.println(buffer2.get());
+        }
+
+        buffer1.rewind();
+        buffer2.rewind();
+        GatheringByteChannel dest;
+        FileOutputStream fos = new FileOutputStream("E:\\SpringSourceCode\\src\\main\\resources\\imageCopy.txt");
+        dest = (GatheringByteChannel) Channels.newChannel(fos);
+        buffers[0] = buffer2;
+        buffers[1] = buffer1;
+        dest.write(buffers);
+    }
+}
+```
+
+通过实例化`java.io.FileInputStream `并把这个实例传递给` ReadableByteChannel newChannel(InputStream inputStream) `获取了一个scattering byte channel 。返回的` ReadableByteChannel `被转换为`ScatteringByteChannel `因为这个实例确实是 a file channel （discussed later ），它实现了`ScatteringByteChannel `。
+
+然后，创建了一对direct byte buffers，容量不同。然后这两个buffer被存在了数组，数组被传递到`read(ByteBuffer[]) `来填充。
+
+填充之后， flip buffer然后输出内容到标准输出。输出后，rewound  buffer准备通过一个聚集操作排干buffer。
+
+实例化`java.io.FileOutputStream `传递给Channels的`WritableByteChannel newChannel(OutputStream outputStream) `方法。返回的` WritableByteChannel `被强转为`GatheringByteChannel `。
+
+最后，分配这些buffers到buffer数组，和它们最开始的分配顺序相反，传递数组到`write(ByteBuffer[]) `来排干。
+
+```
+原文件
+12345abcdefg
+输出
+49
+50
+51
+52
+53
+
+97
+98
+99
+输出文件
+abc12345
+
+```
+
+
+
+##### File Channels 
+
+之前提到，` RandomAccessFile `声明了`FileChannel getChannel() `返回一个file channel实例，描述了一个到文件的 open connection。其实FileInputStream and FileOutputStream也提供了相同的方法。与之不同，`java.io.FileReader` and `java.io.FileWriter` 没有提供活动file channel的方式。
+
+**警告**：从FileInputStream’s getChannel() 返回的file channel是只读的，FileOutputStream’s getChannel() 返回的是只写的。.... ，否则异常。
+
+抽象`java.nio.channels.FileChannel `类描述了一个file channel。这个类实现了` InterruptibleChannel `接口，file channels是interruptible 。还实现了`ByteChannel, GatheringByteChannel, and ScatteringByteChannel `接口，你可以写到它，从它读，在下面的文件执行scatter/gather I/O。然而，还有更多。
+
+**注意**：不像buffers线程不安全，file channels是线程安全的。
+
+一个file channel维护一个当前position到文件，`FileChannel `让你得到和改变这个position。它还允许您请求将缓存的数据强制发送到磁盘，读写文件内容，得到channel下的文件的大小， truncate文件，尝试锁住全部文件或者仅一个文件区域，执行memory-mapped file I/O ，使用操作系统可能优化的方式直接传输数据到另一个channel。
+
+***Table 7-1. FileChannel Methods*** 
+
+| Method                                   | Description                                                  |
+| ---------------------------------------- | ------------------------------------------------------------ |
+| void force(boolean metadata)             | 请求把所有对这个file channel的更新提交到存储设备。当这个方法返回，当文件处于本地存储设备的时候，所有基于channel对文件的修改都被提交。然而，当文件不在本地（例如 网络文件系统 ），应用不能确定修改是不是被提交了。（不保证其他地方定义的方法做出的更改会被提交。比如，通过  mapped byte buffer 的改变可能不会被提交）                                                                                   metadata值表明是否更新要包含文件的metadata（比如 modification time and last access time）。true可能会调用底层的write到操作系统，（如果操作系统在维护metadata，比如  last access time ）,即使channel是以只读打开的。       抛异常  ClosedChannelException  IOException |
+| long position()                          | 返回file channel维护的以0为基准的当前file position。抛异常  ClosedChannelException  IOException |
+| FileChannel position(long newPosition)   | 设置这个file channel的当前file position到newPosition。参数是从文件开头开始的字节计数。不能为负。但是可以超出当前文件size，如果超过了，read会返回end of file。写操作会成功，会在当前文件末尾和new position之间使用需求数量的（未定义）字节值填充字节。offset为负抛出` java.lang.IllegalArgumentException `。  ClosedChannelException ， IOException |
+| int read(ByteBuffer buffer)              | 从file channel读取字节到给定buffer。读取字节的最大数量是调用方法时buffer剩余的字节数量。字节会从buffer的当前position开始复制到buffer。调用会阻塞如果其他线程也尝试从这个channel读。读完后，buffer的position会指到读取字节的末尾。buffer的limit没有变。返回实际读取的字节数，抛出和` ReadableByteChannel `一样的异常。 |
+| int read(ByteBuffer dst, long position)  | 和上面一样，但是从文件的position位置读，position是负抛出` IllegalArgumentException `。 |
+| long size()                              | 返回file channel下的文件的（in bytes）size。 ClosedChannelException ，  IOException |
+| FileChannel truncate(long size)          | Truncate 这个file channel下的文件到size。任何超出  size 的字节都被从文件移除。当没有字节超出给定size，文件内容没被改变。当 current file position 超过了size，它被设置为size。 |
+| int write(ByteBuffer buffer)             | 从给定buffer写一个序列的字节到file channel。字节从channel的  current file position 开始写，除非是append模式，这个模式position会先提到文件末尾。file会增长（必要时）来容纳写入的字节，然后文件position随着被实际写入的字节更新。另外的表现得和` WritableByteChannel `的方法一样。方法返回实际写的字节数，抛出和` WritableByteChannel `一样的异常。 |
+| int write(ByteBuffer src, long position) | 等同上个方法，从position开始写。                             |
+
+ force(boolean)  方法确保所有更改写入本地文件系统上的文件。这个能力对例如事务的critical任务很关键，你要维护数据完整性和可靠恢复。然而，对远程文件系统没有保证。
+
+传true到 force(boolean) 导致metadata也被同步到磁盘。因为metadata对文件恢复通常不关键，你可以传false，它是个额外的I/O操作。
+
+`FileChannel `对象支持current file position的概念，决定了下个要读或写入的data item的位置。 position() 返回当前position，position(long newPosition) 设置当前position到newPosition。
+
+read() and write() 方法有两种形式。相对的形式，不带position参数，确保在方法调用后当前文件的position的更新。绝对的形式带有position参数，不会更新position。绝对形式的读写更效率因为不需要更新channel的state。
+
+如果你尝试执行一个绝对的读文件末尾，参数是size()的返回值，会返回-1表明到达文件末尾。如果你尝试执行一个绝对的读文件末尾，参数是size()的返回值导致文件增长来容纳写入的字节。在先前文件末尾和第一个新写入字节之间的字节的值是系统特定的，可能形成一个hole。
+
+一个*hole*发生在文件，当分配给文件的磁盘空间数量比文件size要小的时候。现代操作系统通常只对写入文件的数据分配空间。当数据被写入不连续的区域，holes出现。当文件被读，holes通常表现为zero-filled（补0）但是不占磁盘空间。
+
+truncate(long size) 方法对减小文件size很有用。截断所有超出size的数据。当size比文件size大或者相等，文件不变。
+
+***Listing 7-3. Demonstrating a File Channel*** 
+
+```java
+public class ChannelDemo2 {
+    public static void main(String[] args) throws IOException {
+        RandomAccessFile raf = new RandomAccessFile("temp", "rw");
+        FileChannel fc = raf.getChannel();
+        long pos;
+        System.out.println(pos = fc.position());
+        System.out.println(fc.size());
+
+        String msg = "er34 we3e 34awe";
+        ByteBuffer buffer = ByteBuffer.allocateDirect(msg.length()*2);
+        buffer.asCharBuffer().put(msg);
+
+        fc.write(buffer);
+        fc.force(true);
+        System.out.println("————————————————————————————————————");
+        System.out.println(fc.position());
+        System.out.println(fc.size());
+        buffer.clear();
+        fc.position(pos);
+        fc.read(buffer);
+        buffer.flip();
+        while (buffer.hasRemaining()) {
+            System.out.print(buffer.getChar());
+        }
+    }
+}
+```
+
+先创建了randomly-accessible File temp，然后从file得到一个file channel，输出position和size，都是0。
+
+然后分配一个direct buffer，存放messgae，把buffer作为character buffer，调用put()保存buffer里的message，随后输出到文件。
+
+调用force(true)，托付底层操作系统把数据存到存储设备。
+
+然后输出当前position和size，然后clear buffer，重置file position到message被写入前的位置（0），读取先前写的内容到buffer。然后flip buffer输出内容。
+
+```
+输出
+Position = 0
+size: 0
+position: 46
+size: 46
+This is a test message.
+再次运行
+Position = 0
+size: 46
+position: 46
+size: 46
+This is a test message.
+```
+
+###### Locking Files 
+
+lock全部或部分文件的能力是重要的，但这个特性Java 1.4才有。这个能力让JVM进程阻止其他进程访问整个或者部分文件直到它结束了整个或者部分文件的操作。
+
+虽然可以锁整个文件，但通常希望锁更小的一部分。例如，数据库管理系统可以锁更新中的单个行而不是锁整个表，因此读取请求可以被授予，从而提高吞吐量 。
+
+和files有联系的locks也叫 *file locks* 。每个文件锁从文件中一个确切的字节位置开始，和一个指定的从这个位置开始的length（byte）。它们一起定义了由锁控制的区域。 文件锁让进程协调对文件中各个区域的访问。
+
+有2种文件锁：exclusive （排它锁）和shared （共享锁）。一个*exclusive lock* 给单个writer进程访问一个文件区域；它阻止其他文件锁同时适用与该区域。一个*shared lock* 给出多个reader进程的其中之一访问相同的文件区域；它不阻止其他共享锁但是阻止排它锁同时适用此区域。
+
+Exclusive and shared locks 普遍使用于一个文件主要是读偶尔更新的场景。一个需要读取文件的进程，需要一把shared lock，锁到整个文件或者期望的子区域。第二个需要读的进程也需要一把共享锁，锁到期望区域。两个进程都能读文件而互不干扰。
+
+假设第三个进程想执行更新。要这么做，需要一个排它锁。这个进程会阻塞住，直到所有的和它的区域重叠的排他/共享锁被释放。一旦更新进程抢到排它锁（Once the exclusive lock was granted to the updater process ），任何请求共享锁的reader进程都会阻塞住，直到排它锁被释放。更新进程更新了文件，读进程也不会观测到不一致的数据。
+
+对 file locking 还有几件事要注意 ：
+
+- 当操作系统不支持共享锁，一个共享锁的请求默默地提升到了排它锁。虽然正确性可以肯定，性能可能会受到影响。
+- Locks是适用于per-file的基础上的。不适用于基于per-thread或者 per-channel。JVM上的2个线程，通过不同的channel，一个到相同区域的排它锁都可以授权访问。然而，如果是不同JVM的线程，第二个线程会阻塞。Locks最终由操作系统的文件系统进行公断，而且几乎总是在进程层面。不在线程层面公断。锁和file关联的，不和文件句柄或channel关联。
+
+FileChannel声明4个方法得到共享/排它锁：
+
+- FileLock lock(): 得到这个file channel底下文件的排它锁。这个方便方法等同于执行`fileChannel.lock(0L, Long. MAX_VALUE, false); `；                                                                                                                                                    
+
+  返回一个`java.nio.channels.FileLock `对象代表被锁区域。可抛出ClosedChannelException，NonWritableChannelException ，java.nio.channels.OverlappingFileLockException当任意一个和请求区域重叠锁已经被JVM持有，或另一个在这个方法被阻塞了并尝试锁住同文件的重叠区域；java.nio.channels.FileLockInterruptionException 当等待获取锁时被打断；AsynchronousCloseException  当等待获取锁时channel被关闭；IOException 等。
+
+- 
