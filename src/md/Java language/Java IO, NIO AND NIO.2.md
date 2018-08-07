@@ -3338,4 +3338,176 @@ FileChannel声明4个方法得到共享/排它锁：
 
   返回一个`java.nio.channels.FileLock `对象代表被锁区域。可抛出ClosedChannelException，NonWritableChannelException ，java.nio.channels.OverlappingFileLockException当任意一个和请求区域重叠锁已经被JVM持有，或另一个在这个方法被阻塞了并尝试锁住同文件的重叠区域；java.nio.channels.FileLockInterruptionException 当等待获取锁时被打断；AsynchronousCloseException  当等待获取锁时channel被关闭；IOException 等。
 
-- 
+- FileLock lock(long position, long size, boolean shared): 在这个channel的文件的区域加锁。
+
+- FileLock tryLock(): 尝试不阻塞地获得排他锁。等同于 `fileChannel.tryLock(0L, Long.MAX_VALUE, false)`; 返回一个 FileLock ，代表被锁的区域或者null，当锁和其他操作系统进程重叠的时候。抛出 ClosedChannelException ，OverlappingFileLockException 当重叠区域的锁被JVM持有，或另一个在这个方法被阻塞了并尝试锁住同文件的重叠区域。 IOException
+
+- FileLock tryLock(long position, long size, boolean shared): 
+
+lock()当要锁的区域已经被锁会block（除非都是共享锁）。对比之下，tryLock() 会迅速返回一个null值（当要和其他操作系统的进程的独占锁重叠）
+
+都返回 FileLock 实例，封装了一个file的被锁的区域。 FileLock’s methods ：
+
+- FileChannel channel(): 当得到锁返回file channel，当file channel没得到锁返回null
+- void close(): 调用release() 方法释放锁
+- boolean isShared():  是不是共享锁
+- boolean isValid(): 是valid lock返回true，否则false。锁是valid的直到它被释放或者关联的file channel被关闭，无论哪个在前
+- boolean overlaps(long position, long size): 返回是不是和被锁区域重叠
+- long position(): 返回被锁区域的第一个字节的位置。返回值可能比文件size要大。
+- void release():  释放锁。如果锁是valid的，调用这个方法释放锁，把对象变成invalid。如果锁是，invalid ，调用这个方法无效。
+- long size(): 返回文件锁的的length（字节）
+- String toString(): 返回string描述range，type和validity 。
+
+FileLock实例和一个FileChannel 实例关联，但是FileLock实例代表的file lock，和underlying file 关联而不是和file channel关联。不小心的话，当你用完后没释放锁可能会遇到冲突（甚至可能死锁）。要避免这些问题，你要采用一种模式比如下面的，确保lock总是被释放：
+
+```java
+FileLock lock = fileChannel.lock();
+try
+{
+ // interact with the file channel
+}
+catch (IOException ioe)
+{
+ // handle the exception
+}
+finally
+{
+ lock.release();
+}
+
+```
+
+例子：
+
+***Listing 7-4. Demonstrating File Locking*** 
+
+```java
+public class ChannelDemo3 {
+    final static int MAXQUERIES = 150000;
+    final static int MAXUPDATES = 150000;
+
+    final static int RECLEN = 16;
+    static ByteBuffer buffer = ByteBuffer.allocate(RECLEN);
+    static IntBuffer intBuffer = buffer.asIntBuffer();
+
+    static int counter = 1;
+
+    public static void main(String[] args) throws IOException {
+        boolean writer = false;
+        if (args.length != 0) {
+            writer = true;
+
+            RandomAccessFile raf = new RandomAccessFile("E:\\SpringSourceCode\\src\\main\\resources\\image.txt", (writer) ? "rw" : "r");
+            FileChannel fc = raf.getChannel();
+            if (writer) {
+                update(fc);
+            } else {
+                query(fc);
+            }
+        }
+    }
+
+    private static void query(FileChannel fc) throws IOException {
+        for (int i = 0; i < MAXQUERIES; i++) {
+            System.out.println("acquiring shared lock");
+            FileLock lock = fc.lock(0, RECLEN, true);
+
+            try {
+                buffer.clear();
+                fc.read(buffer, 0);
+                int a = intBuffer.get(0);
+                int b = intBuffer.get(1);
+                int c = intBuffer.get(2);
+                int d = intBuffer.get(3);
+                System.out.println("Reading" + a + ", " + b + ", " + c + ", " + d);
+                if (a * 2 != b || a * 3 != c || a * 4 != d) {
+                    System.out.println("error");
+                    return;
+                }
+            } finally {
+                lock.release();
+            }
+        }
+    }
+
+    private static void update(FileChannel fc) throws IOException {
+        for (int i = 0; i < MAXUPDATES; i++) {
+            System.out.println("acquiring exclusive lock");
+            FileLock lock = fc.lock(0, RECLEN, false);
+            try {
+                intBuffer.clear();
+                int a = counter;
+                int b = counter * 2;
+                int c = counter * 3;
+                int d = counter * 4;
+
+                System.out.println("Writing" + a + ", " + b + ", " + c + ", " + d);
+                intBuffer.put(a);
+                intBuffer.put(b);
+                intBuffer.put(c);
+                intBuffer.put(d);
+                counter++;
+                buffer.clear();
+                fc.write(buffer, 0);
+            } finally {
+                lock.release();
+            }
+        }
+    }
+}
+```
+
+7-4描述了应用要么更新要么查询文件。因为file lock应用于进程级别而不是线程级别。你需要启动2个application。一个writer，一个reader。
+
+ChannelDemo3 类先定义常数和变量。然后分配了一个byte buffer，得到int-based view buffer 。
+
+main() 决定了是writer还是reader。
+
+**注意：** ChannelDemo reader 进程越多，ChannelDemo writer 进程运行越慢。
+
+###### Mapping Files into Memory 
+
+FileChannel声明了map() 方法可以在打开的文件的一个region和一个包装了这个region的java.nio.MappedByteBuffer实例之间创建一个 virtual memory mapping 。mapping机制提供了一个效率的访问文件的方式，因为没有执行I/O调用的时间消耗。
+
+**注意**：*Virtual memory* 是一种memory，virtual addresses（也叫artificial addresses ）代替（physical (RAM memory) addresses 。Check out Wikipedia’s “Virtual Memory” topic (http://en.wikipedia.org/wiki/ Virtual_memory) to learn more about virtual memory. 
+
+ map() 方法有如下签名：
+
+MappedByteBuffer map(FileChannel.MapMode mode, long position, long size) 
+
+mode参数定义映射类型，是 FileChannel.MapMode 的枚举类型：
+
+- READ_ONLY:  任何更改的尝试抛出java.nio.ReadOnlyBufferException 
+- READ_WRITE:  对resulting buffer 的更改最终传播到文件；Changes 可能不对映射了同一文件的程序可见。
+- PRIVATE:  对resulting buffer 的更改不会传播到文件，对其他映射同一文件的程序不可见。而是，更改会造成buffer修改部分的 private copies 会被创建。当buffer被垃圾回收，更改就丢失。
+
+指定的映射模式受到调用着FileChannel对象访问权限的限制。例如，如果 file channel是只读打开的，请求READ_WRITE mode， map()抛出NonWritableChannelException 。类似地 NonReadableChannelException 。
+
+**技巧**：调用MappedByteBuffer’s isReadOnly() 方法看你能不能更改 mapped file 。
+
+position and size 参数定义开始位置和映射区域范围。不是负的。不能超过Integer.MAX_VALUE 。
+
+指定的range不能超过文件size，因为文件会被变得更大来接收range。例如，如果你size为Integer.MAX_VALUE ，文件会超过2G。同时，对于只读映射， map() 可能抛出IOException 。
+
+返回的MappedByteBuffer 对象表现得像一个memory-mapped buffer。但是内容保存在文件。在这个对象调用get() ，得到当前文件内容，甚至这些内如被外部程序更改的时候。类似地，如果你有写权限， 调用 put()  更新文件，更改对外部程序可用。
+
+**注意**：因为mapped byte buffers 是direct byte buffers ，分配给它们的内存空间存在于JVM堆之外。
+
+```java
+MappedByteBuffer buffer = fileChannel.map(FileChannel.MapMode.READ_ONLY, 50, 100);
+```
+
+这个例子映射一个子范围，从50到149。下面是全部文件
+
+```java
+MappedByteBuffer buffer =
+fileChannel.map(FileChannel.MapMode.READ_ONLY, 0, fileChannel.size());
+```
+
+没有unmap() 方法。一旦映射建立了，它会在垃圾收集前一直存在（或者程序关闭）。因为a mapped byte buffer 没有连接到建立它的 file channel ，当file channel关闭mapping 不会销毁。
+
+MappedByteBuffer 方法继承于java.nio.ByteBuffer 。有以下方法：
+
+- MappedByteBuffer load():  尝试加载全部映射文件到内存。这会使大文件访问更快因为 virtual memory manager  不需要在文件的部分被通过mapped buffer请求的时候加载文件的部分到内存（by reading from/writing to their locations ）。load() 做了最大努力，可能不成功因为额外程序会使 virtual memory manager 移除文件部分的内容来为加载内容到物理空间的请求留出空间。另外，load() 是expensive time-wise ，他会使virtual memory manager 执行I/O；完成这个方法要花费时间
+- boolean isLoaded(): 当全部映射文件内容被加载到内存返回true ；否则false。如果返回true，你可以用很少或没有的I/O操作来访问文件。如果返回false，buffer access 仍然可能很快，mapped content完全居于内存。考虑isLoaded() 为暗示映射字节缓冲区的状态。
+- MappedByteBuffer force(): 让对mapped byte buffer 的更改写入储存。当使用mapped byte buffers 的时候，你应该用这个方法而不是file channel’s force() 方法，因为channel可能没意识到通过mapped byte buffer 做出的更改。在 READ_ONLY and PRIVATE mappings 这个方法没用。
