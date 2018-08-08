@@ -3511,3 +3511,201 @@ MappedByteBuffer 方法继承于java.nio.ByteBuffer 。有以下方法：
 - MappedByteBuffer load():  尝试加载全部映射文件到内存。这会使大文件访问更快因为 virtual memory manager  不需要在文件的部分被通过mapped buffer请求的时候加载文件的部分到内存（by reading from/writing to their locations ）。load() 做了最大努力，可能不成功因为额外程序会使 virtual memory manager 移除文件部分的内容来为加载内容到物理空间的请求留出空间。另外，load() 是expensive time-wise ，他会使virtual memory manager 执行I/O；完成这个方法要花费时间
 - boolean isLoaded(): 当全部映射文件内容被加载到内存返回true ；否则false。如果返回true，你可以用很少或没有的I/O操作来访问文件。如果返回false，buffer access 仍然可能很快，mapped content完全居于内存。考虑isLoaded() 为暗示映射字节缓冲区的状态。
 - MappedByteBuffer force(): 让对mapped byte buffer 的更改写入储存。当使用mapped byte buffers 的时候，你应该用这个方法而不是file channel’s force() 方法，因为channel可能没意识到通过mapped byte buffer 做出的更改。在 READ_ONLY and PRIVATE mappings 这个方法没用。
+
+***Listing 7-5. Demonstrating File Mapping*** 
+
+```java
+public class ChannelDemo4 {
+
+    public static void main(String[] args) throws IOException {
+        if (args.length != 1) {
+            System.out.println("arg is 1");
+            return;
+        }
+        RandomAccessFile raf = new RandomAccessFile(args[0], "rw");
+        FileChannel fc = raf.getChannel();
+        long size = fc.size();
+        System.out.println("Size: " + size);
+        MappedByteBuffer mbb = fc.map(FileChannel.MapMode.READ_WRITE, 0, size);
+        while (mbb.remaining() > 0) {
+            System.out.print((char) mbb.get());
+        }
+
+        System.out.println();
+        System.out.println();
+
+        for (int i = 0; i < mbb.limit() / 2; i++) {
+            byte b1 = mbb.get(i);
+            byte b2 = mbb.get(mbb.limit() - i - 1);
+            mbb.put(i, b2);
+            mbb.put(mbb.limit() - i - 1, b1);
+        }
+        mbb.flip();
+        while (mbb.hasRemaining()) {
+            System.out.print((char) mbb.get());
+        }
+        fc.close();
+    }
+}
+```
+
+输出：
+
+```
+Size: 67
+Roses are red,
+Violets are blue,
+Sugar is sweet,
+And so are you!
+!uoy era os dnA
+,teews si raguS
+,eulb era steloiV
+,der era sesoR
+
+```
+
+###### Transferring Bytes Among Channels 
+
+为了优化执行批量传输的常规做法， FileChannel 添加了2个方法避免了对中间buffers的需求：
+
+- long transferFrom(ReadableByteChannel src, long position, long count) 
+- long transferTo(long position, long count, WritableByteChannel target) 
+
+transferFrom(ReadableByteChannel, long, long) ，从给定可读字节channel传输字节到channels file。src source channel， position 指定文件传输到文件的开始位置，count 指定了要传输的非负最大值。
+
+返回实际被传输的字节数。
+
+transferTo(long, long, WritableByteChannel) 从channel的file传输字节到给定可写channel。
+
+当使用transferTo() ，position plus count 大于file size时，传输在文件末停止。 transferFrom() ，当src是file，到达文件名会停止。
+
+***Listing 7-6. Demonstrating Channel Transfer*** 
+
+```java
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.channels.Channels;
+import java.nio.channels.FileChannel;
+import java.nio.channels.WritableByteChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-08 15:07
+ */
+public class ChannelDemo5 {
+
+    public static void main(String[] args) throws IOException {
+        if (args.length != 2) {
+            System.err.println("usage: java ChannelDemo filespec");
+            return;
+        }
+        try (FileInputStream fis = new FileInputStream(args[0])) {
+            FileChannel inChannel = fis.getChannel();
+            WritableByteChannel outChannel = Channels.newChannel(System.out);
+            inChannel.transferTo(0, inChannel.size(), outChannel);
+        }
+    }
+}
+```
+
+##### Socket Channels 
+
+先前提到， Socket 声明了 SocketChannel getChannel() 方法返回socket channel 实例，描述了一个到socket的 open connection 。不像sockets，socket channels是selectable 的，可以 function in nonblocking mode。这些能力提高大型应用程序的可伸缩性和灵活性 （例如web servers）。
+
+Socket channels 由`java.nio.channels `的抽象 ServerSocketChannel, SocketChannel, and DatagramChannel 类描述。每个类最终继承java.nio.channels. SelectableChannel 和实现 InterruptibleChannel ，这使得ServerSocketChannel, SocketChannel, and DatagramChannel的实例selectable and interruptible 。SocketChannel and DatagramChannel 实现了ByteChannel, GatheringByteChannel, and ScatteringByteChannel 接口，你可以在底下的sockets上读取，写到，执行scatter/gather I/O 。
+
+**注意**：不像buffers是线程不安全的，server socket channels, socket channels, and datagram channels 是线程安全的。
+
+每个 ServerSocketChannel, SocketChannel, and DatagramChannel 实例从java.net.ServerSocket , Socket, or java.net.DatagramSocket 创建一个对等的socket对象。每个类都被改造为能使用channel。你可以调用ServerSocketChannel’s, SocketChannel’s, or DatagramChannel’s socket() 方法获取对等的socket对象。
+
+**注意**：当在从socket()返回的 socket instance 上调用getChannel() 方法，返回关联的 socket channel。然而在从ServerSocket, Socket, or DatagramSocket 实例化返回的socket上调用getChannel() 返回null。
+
+###### Understanding Nonblocking Mode 
+
+Java’s socket类创建的sockets的阻塞性质是对Java面向网络应用扩展性的严重限制。例如， ServerSocket类的Socket accept() 方法，在传入的连接到来之前会阻塞住，在到来时创建和返回Socket实例让server和客户端交流。如果这个方法不阻塞，扩展性会改善因为server可以去完成其他有用的工作而不是必须等着。
+
+abstract SelectableChannel类是ServerSocketChannel, SocketChannel, and DatagramChannel的共同祖先。SelectableChannel 不仅让socket channel在一个selector context 工作，也让socket channels 选择以阻塞/非阻塞模式工作，一个线程可以不阻塞地在输入不可用时检查输入或在output buffer 为空时发送输出。
+
+**注意**：SelectableChannel 将与selectors相关的功能与非阻塞模式相关联，因为非阻塞模式最常用于结合selector-based multiplexing 。
+
+SelectableChannel 提供以下方法 enable blocking or nonblocking ，决定channel是不是阻塞的，和得到 blocking lock：
+
+- SelectableChannel configureBlocking(boolean block):  指定调用 selectable channel的blocking status。true为阻塞。返回 selectable channel 或者抛出异常：ClosedChannelException ；java.net.channels.IllegalBlockingModeException 当block是true，但channel已经被注册了一个或多个selectors， IOException 。
+- boolean isBlocking():  新建的channel默认是阻塞的。
+- Object blockingLock():  返回configureBlocking() 使用的加锁对象。返回对象在adaptors 的实现很有用，需要当前阻塞模式的值在一个短暂的时间不改变。
+
+设置或重置一个selectable channel的阻塞状态是琐碎的。使非阻塞可用，传false到configureBlocking() ，例如：
+
+```java
+ServerSocketChannel ssc = ServerSocketChannel.open();
+ssc.configureBlocking(false); // enable nonblocking mode
+```
+
+虽然非阻塞 sockets通常用于 server-oriented 应用，它们在客户端也很有用。例如，一个GUI-based应用可以利用非阻塞sockets保持用户接口响应，当和多个服务器同时交流的时候。
+
+blockingLock() 方法让你阻止其他线程改变socket channel的阻塞/非阻塞状态。这个方法返回的对象是 channel implementation使用在改变状态时用于加锁的对象。只有持有这个对象锁的线程可以改变status，并且这个锁通常由synchronized 关键字获得。考虑下面的例子：
+
+###### Exploring Server Socket Channels 
+
+ServerSocketChannel是3个 socket channel类中最简单的。方法包含以下方法：
+
+- static ServerSocketChannel open():  尝试打开一个 server-socket channel ，最初不绑定；它必须在连接被接受前通过它的其中一个peer socket’s bind() methods 来指定地址。IOException ，channel打不开
+- ServerSocket socket(): 返回和这个 server socket channel 关联的 peer ServerSocket 实例
+- SocketChannel accept(): 接收对这个channel’s socket的连接。如果这个channel是非阻塞的，当没有等待的连接会立即返回null，或者返回代表了连接的 socket channel。如果阻塞的，accept() 在直到一个新连接可用或者发生I/O错误前是完全阻塞的。accept() 返回的socket channel无论 server socket channel是阻塞还是非阻塞都是阻塞的。抛出ClosedChannelException ；AsynchronousCloseException ；java.nio.channels. NotYetBoundException 。
+
+一个server socket channel 在 TCP/IP stream protocol表现为一个server 。你使用 server socket channels 来监听传入的客户端的连接。
+
+调用static open() 工厂方法创建一个新的server socket channel 。如果一切顺利， open() 返回一个ServerSocketChannel 实例，和一个未绑定的 peer ServerSocket  对象关联。你可以调用 socket()得到这个对象，然后调用 ServerSocket’s bind()  方法绑定server socket （根本上是 server socket channel ）到一个指定地址。
+
+然后你调用ServerSocketChannel’s accept() 方法接受传入的连接。取决于你配置server socket channel为阻塞/非阻塞，方法要么是立刻返回null或者一个到传入连接的socket channel，要么在有传入连接之前阻塞住。
+
+**注意**：你也可以选择在socket() 返回的 peer ServerSocket 对象上调用 accept() 。然而，这个 accept() 总是阻塞的。
+
+例子：
+
+***Listing 7-7. Demonstrating ServerSocketChannel*** 
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-08 17:03
+ */
+public class ChannelServer {
+    public static void main(String[] args) throws IOException {
+
+        System.out.println("starting server");
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        ssc.socket().bind(new InetSocketAddress(9999));
+        ssc.configureBlocking(false);
+        String msg = "Local Address: " + ssc.socket().getLocalSocketAddress();
+        System.out.println(msg);
+        ByteBuffer buffer = ByteBuffer.wrap(msg.getBytes());
+
+        while (true) {
+            System.out.print(".");
+            SocketChannel sc = ssc.accept();
+            if (sc != null) {
+                System.out.println();
+                System.out.println("Receive connection from " + sc.socket().getRemoteSocketAddress());
+                buffer.rewind();
+                sc.write(buffer);
+                sc.close();
+            } else {
+                try{
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    //shouldn't happen
+                    assert false;
+                }
+            }
+        }
+    }
+}
+```
+
