@@ -3709,3 +3709,407 @@ public class ChannelServer {
 }
 ```
 
+buffer rewind 然后内容被写到 socket channel 。
+
+###### Exploring Socket Channels 
+
+SocketChannel 是这3个 socket channel 类最常用的，建模一个面向连接的流协议 （就像TCP/IP ）。这个类有以下方法：
+
+- static SocketChannel open(): 尝试打开一个socket channel。打不开抛出IOException 。
+- static SocketChannel open(InetSocketAddress remoteAddr): 尝试open a socket 并把他连接到remoteAddr。这个方便方法是调用open()  ，在 resulting socket channel 上调用 connect()  （传入地址），然后返回channel 。AsynchronousCloseException ；ClosedByInterruptException ；java.nio.channels.UnresolvedAddressException ；java.nio.channels.UnsupportedAddressTypeException ；IOException 
+- Socket socket(): 返回关联这个 socket channel 的peer Socket 。
+- boolean connect(SocketAddress remoteAddr): 尝试把这个 socket channel的socket对象连接到remote address。如果这个channel是非阻塞的，这种方法的调用启动一个非阻塞连接操作。如果连接马上建立，就像在本地连接中发生的一样 ，方法返回true。否则，方法返回false，并且连接操作必须随后被完成，通过反复调用 finishConnect() 直到这个返回返回true。java.nio.channels.AlreadyConnectedException ；java.nio.channels. ConnectionPendingException ；ClosedChannelException ；AsynchronousCloseException ；ClosedByInterruptException ；UnresolvedAddressException  ；UnsupportedAddressTypeException ；IOException 。
+- boolean isConnectionPending(): 当一个连接操作正在等待完成返回true；否则返回false。
+- boolean finishConnect(): 完成一个连接socket channel的过程。当 socket channel被完全连接返回true；否则false。java.nio.channels. NoConnectionPendingException ；ClosedChannelException ； AsynchronousCloseException ； ClosedByInterruptException ；IOException 
+- boolean isConnected():  当channel’s socket 是open的且连接好的返回true；否则false。
+
+A socket channel 表现如同TCP/IP stream protocol 的客户端。使用socket channels启动连接监听服务器。
+
+调用任意open() 方法创建一个new socket channel。在幕后，创建了peer socket对象。 调用SocketChannel’s socket() 方法返回这个 peer object 。你也可以调用peer Socket object 对象上的getChannel() 返回original socket channel 。
+
+从无参 open() 方法得到的socket channel 没有被连接。尝试从这个socket channel读写抛出java.nio.channels.NotYetConnectedException 。在socket channel或者peer socket上调用 connect()  来连接socket。
+
+在socket channel被连接后，直到关闭都保持连接。调用SocketChannel’s boolean isConnected() 看是否连接了。
+
+带有一个 java.net.InetSocketAddress 参数的open()让你连接到让你连接到另一个在指定的远程地址的主机，如下：
+
+```java
+SocketChannel sc = SocketChannel.open(new InetSocketAddress("localhost", 9999)); 
+```
+
+等同于
+
+```java
+SocketChannel sc = SocketChannel.open();
+sc.connect(new InetSocketAddress("localhost", 9999);
+```
+
+当在一个阻塞的socket channel，通过peer Socket object或者通过SocketChannel’s connect()/second open() 方法，调用connect() 的线程在 socket channel被连接之前会阻塞。然而，当socket channel  不是阻塞的，connect() 马上返回，通常是false代表连接没建立（虽然也可能对 local loopback connection返回true），因为在 socket channel 执行I/O之前，必须建立连接，你需要重复调用finishConnect() 直到返回true。
+
+***Listing 7-8. Demonstrating SocketChannel*** 
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-09 11:47
+ */
+public class ChannelClient {
+
+    public static void main(String[] args) throws IOException {
+
+        SocketChannel sc = SocketChannel.open();
+        sc.configureBlocking(false);
+        InetSocketAddress addr = new InetSocketAddress("localhost", 9999);
+        sc.connect(addr);
+        while (!sc.finishConnect()) {
+            System.out.println("waiting for connecting");
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(200);
+        while (sc.read(buffer) >= 0) {
+            buffer.flip();
+            while (buffer.hasRemaining()) {
+                System.out.println((char) buffer.get());
+                buffer.clear();
+            }
+        }
+        sc.close();
+    }
+}
+```
+
+server
+
+```
+starting server
+Local Address: /0:0:0:0:0:0:0:0:9999
+..................................................................................................
+Receive connection from /127.0.0.1:52506
+..................................
+Receive connection from /127.0.0.1:52512
+..........................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+Receive connection from /127.0.0.1:52523
+.............................................................................
+Receive connection from /127.0.0.1:52530
+..........................................
+Receive connection from /127.0.0.1:52537
+...............................................................................................................................................
+```
+
+client
+
+```
+Local Address: /0:0:0:0:0:0:0:0:9999
+```
+
+###### Exploring Datagram Channels 
+
+DatagramChannel 建模connectionless packet-oriented protocol （such as UDP/IP ）。这个类有以下方法：
+
+- static DatagramChannel open():  尝试打开一个datagram channel ，打不开抛出IOException 。
+- DatagramSocket socket(): 返回和这个 datagram channel 关联的peer DatagramSocket 实例。
+- DatagramChannel connect(SocketAddress remoteAddr): 尝试把这个datagram channel的 socket object 连接到remoteAddr。channel’s socket 被配置只从remoteAddr接收datagrams或者发送到remoteAddr。一旦连接，不能从任何另外地址接收或发送到另外地址。一个datagram socket 保存连接直到显示地断开或关闭。方法如果成功返回datagram channel。ClosedChannelException ；AsynchronousCloseException ；ClosedByInterruptException ；IOException ；
+- boolean isConnected(): 当这个channel’s socket 是打开且连接状态返回true；否则false。
+- DatagramChannel disconnect(): 从这个channel’s socket 断开。这个方法可以在任何时刻调用并且不会影响正在执行的读写操作。当没 socket没连接或者channel关闭了，方法无效。
+- SocketAddress receive(ByteBuffer buffer):  通过channel接收datagram。如果datagram 马上可用，或者channel是阻塞的datagram将可用，datagram被复制到给定byte buffer 并且返回它的source address。如果channel是非阻塞的并且datagram不立即可用，方法立刻返回null。datagram 被传输到给定byte buffer ，从当前position开始，就像一个常规的读操作。如果buffer里剩下的字节比需要保持datagram的字节少，余下的datagram 默默被丢弃。当channel不阻塞且没有datagram可用，返回 datagram’s source address or null 。ClosedChannelException ；AsynchronousCloseException ；ClosedByInterruptException ；IOException 
+- int send(ByteBuffer buffer, SocketAddress destAddr): 通过channel发送datagram 。如果channel是非阻塞的并且在underlying output buffer 有足够空间，或者channel是阻塞的足够空间可用，在given buffer里剩余的bytes 作为  a single datagram 被传输到 given destination address 。datagram 从 byte buffer 被传输，就像一个常规写操作。返回被发送的字节数量，它是source buffer 里剩余的字节数，当channel 是非阻塞的，如果对于datagram的underlying output buffer 的空间不足，会返回0。ClosedChannelException ；AsynchronousCloseException ；ClosedByInterruptException ；IOException 。
+
+另外，有几个read() and write()  你可能喜欢用。不像send() and receive() 是不需要datagram channel 被连接的， read() and write() 需要连接。
+
+调用static open() 获得DatagramChannel instance 。new datagram channel 和 peer DatagramSocket object 关联，你可以调用DatagramChannel’s socket() 方法获得这个对象。
+
+datagram channel  可以表现为client (the sender) 也可以是server (the listener) 。做为listener ，datagram channel 必须绑定到一个port 和一个optional address。得到DatagramSocket object，调用bind()  ，如下：
+
+```java
+DatagramChannel dc = DatagramChannel.open();
+DatagramSocket ds = dc.socket();
+ds.bind(new InetSocketAddress(9999)); // bind to port 9999
+```
+
+receive() 方法复制进来的 datagram’s data payload 到参数里的 byte buffer ，返回的socket address 是datagram’s source address 。如果channel是阻塞的，receive() 在packet到来或者一些事件导致异常之前sleep。如果是非阻塞，当datagram不可用返回null。如果datagram 比buffer大，多余的字节被默默移除。
+
+send() 方法发送 given byte buffer’s content ，从buffer的当前position开始到buffer的limit，发送到参数指定的destination address/ port number 。如果datagram channel是阻塞的，send() 会在datagram is queued for sending 或者事件导致异常抛出之前sleep。如果channel不是阻塞的，返回2个值的一个：被发送buffer content的 entire length 或者是0表示buffer content 没被发送（当传输前没有空间保存整个datagram，什么也不发送 ）
+
+**注意**：Datagram protocols 是不可靠的。首先，不保证交付。因此，send() 返回的非零值不代表datagram到达了目的地。同时，underlying network 可能将数据报片段分割成多个小数据包 。当datagram是分割的，很可能一个或者多个数据包没有到达目的地。因为receiver不能组装所有的包，整个datagram 被丢弃。因此， data payloads 应该被限制在最高几百字节。
+
+ stock ticker 例子，你需要用datagram channel对应给定公司提供最近的 stock prices 。客户端会提交company’s stock symbol （such as MSFT for Microsoft ）作为datagram payload ，接收datagram响应的payload 提供了requested stock prices。因为需要latest information ，当response datagram没来到，会重新请求。
+
+***Listing 7-9. Using DatagramChannel to Implement a Stock Ticker Server*** 
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-09 16:14
+ */
+public class StockTickerServer {
+    final static int PORT = 9999;
+
+    public static void main(String[] args) throws IOException {
+        System.out.println("server starting and listening on port " + PORT + " for incoming requests...");
+        DatagramChannel dcServer = DatagramChannel.open();
+        dcServer.socket().bind(new InetSocketAddress(PORT));
+        ByteBuffer symbol = ByteBuffer.allocate(4);
+        ByteBuffer payload = ByteBuffer.allocate(16);
+
+        while (true) {
+            payload.clear();
+            symbol.clear();
+            SocketAddress sa = dcServer.receive(symbol);
+            if (sa == null) {
+                return;
+            }
+            System.out.println("Received request from " + sa);
+            String stockSymbol = new String(symbol.array(), 0, 4);
+            System.out.println("Symbol: " + stockSymbol);
+            if (stockSymbol.toUpperCase().equals("MSFT")) {
+                payload.putFloat(0, 37.40f); // open share price
+                payload.putFloat(4, 37.22f); // low share price
+                payload.putFloat(8, 37.48f); // high share price
+                payload.putFloat(12, 37.41f); // close share price
+            } else {
+                payload.putFloat(0, 0.0f);
+                payload.putFloat(4, 0.0f);
+                payload.putFloat(8, 0.0f);
+                payload.putFloat(12, 0.0f);
+            }
+            dcServer.send(payload, sa);
+        }
+    }
+}
+```
+
+使用four-byte floating-point values代表price。
+
+**注意**：为了方便，用 floating-point表示，不是个好做法，应该使用java.math.BigDecimal 。也不要把price嵌入到源码 ，而是从外部的 server or database 获取。
+
+ tests sa for null 的if对应用是不必要的，但是可以用于配置非阻塞模式。
+
+在输出一个识别请求的消息后，判断是不是MSTF。最后发送payload datagram payload 继续循环。
+
+Client：
+
+***Listing 7-10. Using DatagramChannel to Implement a Stock Ticker Client*** 
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-09 16:14
+ */
+public class StockTickerServer {
+    final static int PORT = 9999;
+
+    public static void main(String[] args) throws IOException {
+        System.out.println("server starting and listening on port " + PORT + " for incoming requests...");
+        DatagramChannel dcServer = DatagramChannel.open();
+        dcServer.socket().bind(new InetSocketAddress(PORT));
+        ByteBuffer symbol = ByteBuffer.allocate(4);
+        ByteBuffer payload = ByteBuffer.allocate(16);
+
+        while (true) {
+            payload.clear();
+            symbol.clear();
+            SocketAddress sa = dcServer.receive(symbol);
+            if (sa == null) {
+                return;
+            }
+            System.out.println("Received request from " + sa);
+            String stockSymbol = new String(symbol.array(), 0, 4);
+            System.out.println("Symbol: " + stockSymbol);
+            if (stockSymbol.toUpperCase().equals("MSFT")) {
+                payload.putFloat(0, 37.40f); // open share price
+                payload.putFloat(4, 37.22f); // low share price
+                payload.putFloat(8, 37.48f); // high share price
+                payload.putFloat(12, 37.41f); // close share price
+            } else {
+                payload.putFloat(0, 0.0f);
+                payload.putFloat(4, 0.0f);
+                payload.putFloat(8, 0.0f);
+                payload.putFloat(12, 0.0f);
+            }
+            dcServer.send(payload, sa);
+        }
+    }
+}
+```
+
+客户端是直接发送的。
+
+##### Pipes
+
+java.nio.channels 包有一个Pipe 类。Pipe描述了一对channels，实现了unidirectional pipe （单向管道），是在两个实体间单方向传递数据的管道，比如两个file channels 或两个socket channels 之间。Pipe类似于java.io.PipedInputStream and java.io.PipedOutputStream 类———see Chapter 4 。
+
+Pipe内嵌声明了 SourceChannel and SinkChannel 类分别充当readable and writable byte channels 。 Pipe  也声明以下方法：
+
+- static Pipe open(): open一个new pipe
+- SourceChannel source(): 返回pipe的source channel （数据来源）
+- SinkChannel sink():  返回pipe的sink channel（数据被发送到的地方）
+
+***Listing 7-11. Producing and Consuming Bytes via a Pipe*** 
+
+```java
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.Pipe;
+import java.nio.channels.ReadableByteChannel;
+import java.nio.channels.WritableByteChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-09 17:36
+ */
+public class ChannelDemo6 {
+
+    final static int BUFSIZE = 10;
+    final static int LIMIT = 3;
+
+    public static void main(String[] args) throws IOException {
+        final Pipe pipe = Pipe.open();
+
+        new Thread(() -> {
+            WritableByteChannel src = pipe.sink();
+            ByteBuffer buffer = ByteBuffer.allocate(BUFSIZE);
+            for (int i = 0; i < LIMIT; i++) {
+                buffer.clear();
+                for (int j = 0; j < BUFSIZE; j++) {
+                    buffer.put((byte) (Math.random() * 256));
+                }
+                buffer.flip();
+                try {
+                    while (src.write(buffer) > 0) ;
+                } catch (IOException ioe) {
+                    System.out.println(ioe.getMessage());
+                }
+            }
+            try {
+                src.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+
+        }, "sender").start();
+
+        new Thread(() -> {
+            ReadableByteChannel dst = pipe.source();
+            ByteBuffer buffer = ByteBuffer.allocate(BUFSIZE);
+
+            try {
+                while (dst.read(buffer) >= 0) {
+                    buffer.flip();
+                    while (buffer.remaining() > 0) {
+                        System.out.println(buffer.get() & 255);
+                    }
+                    buffer.clear();
+                }
+            } catch (IOException e) {
+                System.out.println(e.getMessage());
+            }
+
+        }, "receiver").start();
+    }
+}
+```
+
+sender task调用Pipe’s sink() 得到writable byte channel 。然后分配用于储存要被写的内容的byte buffer。然后一对for循环用于发送byte-oriented data到writable byte channel。每一个外部for循环迭代先clear buffer，准备用于内循环填充buffer。然后被flipped准备排干，通过传递buffer到 writable byte channel’s write() 方法。因为单次方法调用可能不会排干全部buffer，write() 在循环里调用直到返回0，0意味着没有更多的内容可以写。 channel然后被关闭，所以receiver task 从channel 读的时候不会阻塞，它希望获得更多的数据 。
+
+receiver task调用 Pipe’s source() 得到readable byte channel ，然后分配buffer存储read content。
+
+然后是while循环持续从channel读直到read() 返回-1，表明channel到达了流的end。如果sender’s run() 方法没有关闭channel，这个方法不会到达流的end。此时，buffer被flipped用于排干。然后通过打印 byte values 到标准输出流排干了buffer。每个字节bitwise ANDed with 255 防止输出负值。根本上，get() 返回8-bit integer value ，在System.out.println()时转换为 32-bit integer 。这个转换应用了符号扩展（ sign extension ），这意味着一些字节值变成负的32-bit integers 。但是bitwise ANDing the byte value with 255 ，保证不会转化为负值。最后buffer被clear用于填充，循环继续。
+
+输出
+
+```java
+245
+56
+137
+166
+52
+183
+252
+166
+246
+124
+163
+11
+159
+68
+203
+118
+157
+70
+54
+148
+186
+17
+12
+203
+75
+223
+224
+175
+205
+47
+```
+
+#### EXERCISES 
+
+```
+The following exercises are designed to test your understanding of Chapter 7’s content:
+1. What is a channel?
+2. What capabilities does the Channel interface provide?
+3. Identify the three interfaces that directly extend Channel.
+4. True or false: A channel that implements InterruptibleChannel is
+asynchronously closeable.
+5. Identify the two ways to obtain a channel.
+6. Define scatter/gather I/O.
+7. What interfaces are provided for achieving scatter/gather I/O?
+8. Define file channel.
+9. True or false: File channels don’t support scatter/gather I/O.
+10. Define exclusive lock and shared lock.
+11. What is the fundamental difference between FileChannel’s lock()
+and tryLock() methods?
+12. What does the FileLock lock() method do when either a lock
+is already held that overlaps this lock request or another thread is
+waiting to acquire a lock that will overlap with this request?
+13. Specify the pattern that you should adopt to ensure that an acquired
+file lock is always released.
+14. What method does FileChannel provide for mapping a region of a
+file into memory?
+15. Identify the three file-mapping modes.
+16. Which file-mapping mode corresponds to copy-on-write?
+17. Identify the FileChannel methods that optimize the common
+practice of performing bulk transfers.
+18. True or false: Socket channels are selectable and can function in
+nonblocking mode.
+19. Identify the three classes that describe socket channels.
+20. True or false: Datagram channels are not thread-safe.
+21. Why do socket channels support nonblocking mode?
+22. How would you obtain a socket channel’s associated socket?
+23. How do you obtain a server socket channel?
+24. Create a Copy application that uses the ByteBuffer and
+FileChannel classes in partnership with FileInputStream and
+FileOutputStream to copy a source file to a destination file.
+
+```
+
+#### Summary 
+
+Channels partner with buffers to achieve high-performance I/O. A channel is an object that represents an open connection to a hardware device, a file, a network socket, an application component, or another entity that’s capable of performing write, read, and other I/O operations. Channels efficiently transfer data between byte buffers and operating system-based I/O service sources or destinations. 
+
+Java supports channels by providing the Channel interface, its WritableByteChannel and ReadableByteChannel subinterfaces, the Channels class, and other types in the java.nio.channels package. While exploring this package, you learned about scatter/gather I/O, file channels (in terms of the FileChannel class with emphasis on its file locking, memory-mapped file I/O, and byte-transfer capabilities), socket channels, and pipes. 
+
