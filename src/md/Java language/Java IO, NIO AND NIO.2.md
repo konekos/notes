@@ -4113,3 +4113,316 @@ Channels partner with buffers to achieve high-performance I/O. A channel is an o
 
 Java supports channels by providing the Channel interface, its WritableByteChannel and ReadableByteChannel subinterfaces, the Channels class, and other types in the java.nio.channels package. While exploring this package, you learned about scatter/gather I/O, file channels (in terms of the FileChannel class with emphasis on its file locking, memory-mapped file I/O, and byte-transfer capabilities), socket channels, and pipes. 
 
+### Chapter 8 Selectors 
+
+I/O要么是block-oriented (such as file I/O)要么是stream-oriented (such as network I/O)。Streams通常比block devices (such as fixed disks) 慢，并且读写操作通常造成调用线程在输入可用或输出被完全写出之前阻塞住。为了弥补，现代操作系统让streams以非阻塞模式操作，这让一个线程不阻塞地读写数据成为可能。操作完全成功或表明部分成功。不管怎样，线程可以去执行其他有用的工作而不是等待。
+
+Nonblocking mode doesn’t let an application determine if it can perform an operation without actually performing the operation。例如，当一个非阻塞read线程成功，应用知道读操作是可能的也知道读了一些必须管理的数据。这个duality防止你把检查读流从 data-processing代码分离，不会让你的代码明显复杂。
+
+非阻塞模式充当执行 *readiness selection* 的基础，这将把工作转交给操作系统，在不实际执行操作的情况下checking for I/O stream readiness来执行写、读和其他操作。 操作系统被指示观测一组streams，并返回一些迹象表明哪些流准备好执行一个特定操作（such as read ）或一些特定操作（such as accept and read  ）。这个能力让一个线程*multiplex*(多路复用)一个潜在的巨大数量的active streams，通过使用操作系统提供的 readiness information。用这种方式，network servers 可以处理很大数量的网络连接；他们极大地扩展了。 
+
+**注意**：现代操作系统让readiness selection对应用可用，通过例如 POSIX select() 的系统调用。
+
+Selectors 让你在Java context得到readiness selection。
+
+#### Selector Fundamentals 
+
+一个selector对象是abstract java.nio. channels.Selector类的子类创建的对象。selector维护一个channels的set ，检查来确定那个channel准备好了用于reading, writing, completing a connection sequence, accepting another connection, or some combination of these tasks。实际的工作是委托给操作系统的，通过POSIX select()或类似系统调用。
+
+**注意**：检查一个channel的能力在一些东西还没就绪的时候（such as bytes are not available for reading ）是不需要等待的，同时也不用必须执行操作虽然检查是可伸缩性的关键。一个single thread可以管理很大数目的channels，这减少了代码复杂性和潜在的线程issues。
+
+Selectors是使用 *selectable channels* 的，是最终继承java.nio.channels.SelectableChannel的类，描述了一个channel可以被selector multiplexed。Socket channels, server socket channels, datagram channels, and pipe source/sink channels 是 selectable channels ，因为java.nio.channels. SocketChannel, java.nio.channels.ServerSocketChannel, java.nio. channels.DatagramChannel, java.nio.channels.Pipe.SinkChannel, and java.nio.channels.Pipe.SourceChannel 由SelectableChannel派生。不同的是，file channels不是 selectable channels ，因为java.nio. channels.FileChannel 在祖先不包含SelectableChannel 。
+
+一个或多个之前创建的selectable channels是用一个selector注册的。每个注册返回一个abstract SelectionKey类的子类的实例， 它是个token代表了channel和selector之间的关系。*key*跟踪两个操作的set：interest set and ready set 。 interest set 识别 在下一次调用选择器的选择方法时，要对其进行测试的operation categories。 ready set 识别  key’s channel 被发现且准备好的 operation categories。当 selection method 被调用， 通过检查所有selector注册的channels 来更新selector的相关keys。应用然后可以获得一个keys的set ，它的channels已经被找到并且iterate over these keys to service each channel that has become ready 。
+
+**注意**：一个selectable channel可以不止一个selector 注册。它不知道它当前注册的selectors。
+
+要用selectors ，要先建一个。调用 Selector’s Selector open() 方法，成功返回Selector 实例
+
+```java
+Selector selector = Selector.open();
+```
+
+你可以在创建selector 之前或之后创建 selectable channels 。然而，在用selector 注册channel前，你需要保证每个channel是非阻塞模式。注册方法：
+
+```java
+SelectionKey register(Selector sel, int ops)
+	SelectionKey register(Selector sel, int ops,
+Object att)
+```
+
+每个方法需要你传入一个先前创建的selector，一个bitwise ORed combination of the following SelectionKey int-based constants ，它表示interest set ：
+
+- OP_ACCEPT: Operation-set bit for socket-accept operations. 
+- OP_CONNECT: Operation-set bit for socket-connect operations 
+- OP_READ: Operation-set bit for read operations 
+- OP_WRITE: Operation-set bit for write operations. 
+
+第二个方法也让你传入一个任意的 java.lang.Object 或者一个子类实例（或者null）到att。 non-null object 被称作*attachment* ，是一个意识到given channel 或附加additional information 到channel的方便方式。它保存在这个方法返回的SelectionKey实例。
+
+一旦成功，每个方法返回SelectionKey 实例，把selectable channel 和selector联系起来。一旦失败，抛出异常。例如， java.nio.channels.ClosedChannelException ；java.nio.channels. IllegalBlockingModeException 。
+
+以下代码扩充了上面的代码片段，通过配置先前创建的channel为非阻塞模式，用selector注册channel。selection methods  test the channel for accept, read, and write readiness ：
+
+```java
+channel.configureBlocking(false);
+SelectionKey key = channel.register(selector, SelectionKey.OP_ACCEPT |
+ SelectionKey.OP_READ |
+ SelectionKey.OP_WRITE);
+```
+
+此时，应用典型地进入一个无限循环，在这里完成下面工作：
+
+1. 执行selection operation
+2. 获得选定的keys，然后在选定的keys上执行迭代器。 
+3. 遍历这些键并执行channel 操作
+
+一个 selection operation 是调用Selector’s selection的 methods 之一完成的。例如， int select() 执行一个阻塞 selection operation 。在一个channel被选择之前，或者这个channel的wakeup() 被调用前，或者在当前线程被打断前（无论哪个在前）都不会返回。
+
+**注意**：Selector 也声明了int select(long timeout) 方法，在一个channel被选择之前，或者这个channel的wakeup() 被调用前，或者在当前线程被打断前，或者超出timeout之前（无论哪个在前）都不会返回。另外，Selector声明了int selectNow() ，是select()的非阻塞模式。
+
+ select() 方法返回自从上次调用变为就绪的channels 。例如，如果你调用 select() ，他返回1因为1个channel变得就绪，如果再次调用select() 并且第二个channel也变得就绪了，select() 会再次返回1。如果你还没有为第一个现成的channel提供服务， 你现在有2个channel要服务。然而，在两次 select() 调用之间，只有一个channel 变得就绪。
+
+selected keys 的set (the ready set)调用Selector’s Set selectedKeys() 方法获取。调用set的iterator() 获取迭代器。
+
+最后，应用迭代keys。每次遍历返回一个SelectionKey 实例。一些SelectionKey’s boolean isAcceptable(), boolean isConnectable(), boolean isReadable(), and boolean isWritable() 的组合被调用来决定key 是否表明channel准备好accept a connection, is finished connecting, is readable, or is writable 。
+
+**注意**：前面提到的方法提供了一个便利方法来指定表达式，比如key.readyOps() & OP_READ != 0 。SelectionKey’s int readyOps() 方法返回key的 ready set 。返回的set只包含对key的channel的 有效operation bits 。例如，不会返回一个operation bit 表明只读的channel准备好写了。注意每个selectable channel 也声明了int validOps() 方法，返回对channel有效的operations 的bitwise ORed set 。
+
+一旦应用决定channel准备好执行一个特定操作，它可以调用SelectionKey’s SelectableChannel channel() 方法得到channel，然后在channel执行工作。
+
+**注意**：SelectionKey 也声明了Selector selector() 方法，返回key 为之创建的selector 。
+
+当你完成channel的处理，你必须从keys 的set移除key；selector 不做这个工作。下次channel准备好的时候，Selector 会添加key到selected key set 。
+
+以下代码为以上任务：
+
+```java
+import java.io.IOException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Iterator;
+import java.util.Set;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-10 14:45
+ */
+public class SelectorDemo {
+    public static void main(String[] args) throws IOException {
+        Selector selector = Selector.open();
+        //ServerSocketChannel scChannel = ServerSocketChannel.open();
+        //scChannel.configureBlocking(false);
+        while (true) {
+            int numReadyChannels = selector.select();
+            if (numReadyChannels == 0) {
+                continue;
+            }
+            Set<SelectionKey> selectedKeys = selector.selectedKeys();
+            Iterator<SelectionKey> keyIterator = selectedKeys.iterator();
+            while (keyIterator.hasNext()) {
+                SelectionKey key = keyIterator.next();
+                if (key.isAcceptable()) {
+                    // A connection was accepted by a ServerSocketChannel
+                    ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                    SocketChannel client = server.accept();
+                    if (client == null) { // in case accept() returns null
+                        continue;
+                    }
+                    client.configureBlocking(false);// must be nonblocking
+                    // Register socket channel with selector for read operations.
+                    client.register(selector, SelectionKey.OP_READ);
+                } else if (key.isReadable()) {
+                    // A socket channel is ready for reading.
+                    SocketChannel client = (SocketChannel) key.channel();
+                    // Perform work on the socket channel.
+                } else if (key.isWritable()) {
+                    // A socket channel is ready for writing.
+                    SocketChannel client = (SocketChannel) key.channel();
+                }
+                keyIterator.remove();
+            }
+        }
+    }
+}
+```
+
+和用selector 注册server socket channel 一样，每个进来的client socket channel 也是用server socket channe 注册的。当 client socket channel 准备好读或写操作，对于关联的socket channel 的 key.isReadable() or key.isWritable() 都返回true， socket channel  可被读写。
+
+一个key代表selectable channel 和selectable channel 之间的关系。这个关系可以调用 SelectionKey’s void cancel() 方法来终止。一旦返回，key会失效，会被已经添加到 selector’s cancelled-key set 。key会在下一次selection operation 从selector’s key sets 移除。
+
+当你完成一个selector，调用Selector’s void close() 。如果这时一个线程在 selector’s selection 方法之一中阻塞了，线程被打断，就好像调用了selector’s wakeup() 方法一样。还和selector关联的uncancelled keys会失效，它们的channels被注销，和这个selector 关联的任何资源被释放。如果selector已经关闭，调用close() 无效。
+
+#### Selector Demonstration 
+
+Selectors 通常用于 server applications 。Listing 8-1 表示了一个应用发送local time到clients。
+
+***Listing 8-1. Serving Time to Clients*** 
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Iterator;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-10 16:52
+ */
+public class SelectorServer {
+
+    final static int DEFAULT_PORT = 9999;
+    static ByteBuffer bb = ByteBuffer.allocateDirect(8);
+
+    public static void main(String[] args) throws IOException {
+        int port = DEFAULT_PORT;
+        if (args.length > 0) {
+            port = Integer.parseInt(args[0]);
+        }
+        System.out.println("Server starting ... listening on port " + port);
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        ssc.socket().bind(new InetSocketAddress(port));
+        ssc.configureBlocking(false);
+
+        Selector s = Selector.open();
+        ssc.register(s, SelectionKey.OP_ACCEPT);
+
+        while (true) {
+            int n = s.select();
+            if (n == 0) {
+                continue;
+            }
+            Iterator<SelectionKey> iterator = s.selectedKeys().iterator();
+            while (iterator.hasNext()) {
+                SelectionKey key = iterator.next();
+                if (key.isAcceptable()) {
+                    SocketChannel sc;
+                    sc = ((ServerSocketChannel) key.channel()).accept();
+                    if (sc == null) {
+                        continue;
+                    }
+                    System.out.println("Receiving connection");
+                    bb.clear();
+                    bb.putLong(System.currentTimeMillis());
+                    bb.flip();
+                    System.out.println("Writing current time");
+                    while (bb.hasRemaining()) {
+                        sc.write(bb);
+                    }
+                    sc.close();
+                }
+                iterator.remove();
+            }
+        }
+    }
+}
+```
+
+After outputting a startup message that identifies the listening port, main() obtains a server socket channel followed by the underlying socket, which is bound to the specified port. The server socket channel is then configured for nonblocking mode in preparation for registering this channel with a selector. 
+
+new一个selector，server socket channel使用selector注册自己，因此selector可以知道channel什么时候准备好执行accept操作。返回的key没有保存，因为从来没被cancelled （selector 也从没被关闭）。
+
+然后进入无限循环，先调用selector’s select() 方法。如果 server socket channel 还没就绪（select() returns 0 ），循环余下的被跳过。
+
+ selected keys 和迭代器被获得。然后内循环遍历。每个key的 isAcceptable() 被调用，找到准备好执行accept operation的server socket channel。如果是这种情况，channel 被获得，被转换为ServerSocketChannel ，ServerSocketChannel’s accept() 方法被调用来接收连接。
+
+为了防止返回的SocketChannel实例为null的可能性（当server socket channel 为非阻塞模式并且没有连接可用于接收），检测这种情况当null被检测continue循环。
+
+A message about receiving a connection is output and the byte buffer is cleared in preparation for storing the local time. After this long integer has been stored in the buffer, the buffer is flipped in preparation for draining. A message about writing the current time is output and the buffer is drained. The socket channel is then closed and the key is removed from the set of keys. 
+
+client测试server。
+
+***Listing 8-2. Receiving Time from the Server*** 
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
+import java.util.Date;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-10 17:34
+ */
+public class SelectorClient {
+
+    final static int DEFAULT_PORT = 9999;
+    static ByteBuffer bb = ByteBuffer.allocateDirect(8);
+
+    public static void main(String[] args) {
+        int port = DEFAULT_PORT;
+        if (args.length > 0) {
+            port = Integer.parseInt(args[0]);
+        }
+        try {
+            SocketChannel sc = SocketChannel.open();
+            InetSocketAddress addr = new InetSocketAddress("localhost", port);
+            sc.connect(addr);
+            long time = 0;
+            while (sc.read(bb) != -1) {
+                bb.flip();
+                while (bb.hasRemaining()) {
+                    time <<= 8;
+                    time |= bb.get() & 255;
+                }
+                bb.clear();
+            }
+            System.out.println(new Date(time));
+            sc.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+比server代码更简单，因为没有用selectors 。在这个简单的应用不需要selector 。当你的客户端和多个服务器在 client context交互的时候，会典型地使用selector。
+
+代码里有趣的东西：
+
+- bb.get() 返回32-bit integer 代表一个8-bit byte 。用于byte values的Sign extension 大于127 ，被认为是负值。因为 leading one bits 在 bitwise ORing them with time 后影响结果，它们通过 bitwise ANDing the integer with 255 被移除。
+- time传入Date，然后println() 调用toString。
+
+输出：
+
+server
+
+```
+Receiving connection
+Writing current time
+```
+
+client
+
+```
+Tue Jul 28 13:38:20 CDT 2015
+```
+
+#### EXERCISES 
+
+```java
+The following exercises are designed to test your understanding of Chapter 8’s content:
+1. Define selector.
+2. Identify the three main types that support selectors.
+3. True or false: File channels can be used with selectors.
+4. What does SelectionKey provide as a convenient alternative to the
+expression key.readyOps() & OP_READ != 0?
+```
+
+#### Summary 
+
+A selector is an object created from a subclass of the abstract Selector class. The selector maintains a set of channels that it examines to determine which channels are ready for reading, writing, completing a connection sequence, accepting another connection, or some combination of these tasks. 
+
+Selectors are used with selectable channels, which are objects whose classes ultimately inherit from the abstract SelectableChannel class, which describes a channel that can be multiplexed by a selector. 
+
+One or more previously created selectable channels are registered with a selector. Each registration returns an instance of a subclass of the abstract SelectionKey class, which is a token signifying the relationship between one channel and the selector. When a selection method is invoked, the selector’s associated keys are updated by checking all channels registered with that selector. The application can then obtain a set of keys whose channels were found ready and iterate over these keys to service each channel that has become ready since the previous select method call. 
+
+### Chapter 9 Regular Expressions  
+
