@@ -4426,3 +4426,176 @@ One or more previously created selectable channels are registered with a selecto
 
 ### Chapter 9 Regular Expressions  
 
+#### Pattern, PatternSyntaxException, and Matcher 
+
+ java.util.regex.Pattern 。Regexes预编译提高性能。
+
+***Table 9-1. Pattern Methods*** 
+
+| Method                                                   | Description                                                  |
+| -------------------------------------------------------- | ------------------------------------------------------------ |
+| static Pattern compile(String regex)                     | 编译 regex 。can   throw java.util. regex.PatternSyntaxException |
+| static Pattern compile(String regex,int flags)           | 根据 given flags 编译（一个 bitset ， Pattern’s CANON_EQ, CASE_INSENSITIVE, COMMENTS, DOTALL, LITERAL, MULTILINE, UNICODE_CASE, and UNIX_LINES 的组成）。 |
+| int flags()                                              | Return this Pattern object’s match flags 。  compile(String) 返回0， compile(String, int)  返回int |
+| Matcher matcher(CharSequence input)                      | 返回 java.util.regex.Matcher 。 Matcher将与这个模式的编译后的正则表达式匹配 。 |
+| static boolean matches(String regex, CharSequence input) | Compile regex and attempt to match input against the compiled regex。当有match返回true；否则false。是 Pattern.compile(regex). matcher(input).matches() 的方便方法。 |
+| String pattern()                                         | 返回Pattern未编译的 regex                                    |
+| static String quote(String s)                            | Quote s using "\Q" and "\E" so that all other metacharacters lose their special meaning.   When the returned java.lang.String object is later compiled into a Pattern instance, it only can be matched literally 。 |
+| String[] split(CharSequence input)                       | Split input around matches of this Pattern’s compiled regex and return an array containing the matches |
+| String[] split(CharSequence input, int limit)            | Split input around matches of this Pattern’s compiled regex; limit controls the number of times the compiled regex is applied and thus affects the length of the resulting array. |
+| String toString()                                        | Return this Pattern’s uncompiled regex                       |
+
+上面展示了java.lang.CharSequence接口，任何实现这个接口的类（String, java.lang.StringBuffer, and java.lang. StringBuilder ）可以被传入到带有CharSequence 参数的Pattern 方法（such as split(CharSequence) ）。
+
+***Table 9-2. PatternSyntaxException Methods*** 
+
+| Method                  | Description                                                  |
+| ----------------------- | ------------------------------------------------------------ |
+| String getDescription() | Return a description of the syntax error                     |
+| int getIndex()          | Return the approximate index of where the syntax error occurred in the pattern or -1 when the index isn’t known. |
+| String getMessage()     | Return a multiline string containing the description of the syntax error and its index, the erroneous pattern, and a visual indication of the error index within the pattern |
+| String getPattern()     | Return the erroneous pattern.                                |
+
+Matcher类：
+
+- boolean matches(): Attempt to match the entire region against the pattern. When the match succeeds, more information can be obtained by calling Matcher’s start(), end(), and group() methods.  For example, int start() returns the start index of the previous match, int end() returns the offset of the first character following the previous match, and String group() returns the input subsequence matched by the previous match. Each method throws java.lang. IllegalStateException when a match has not yet been attempted or the previous match attempt failed. 
+- boolean lookingAt():  Attempt to match the input sequence, starting at the beginning of the region, against the pattern.  As with matches(), this method always starts at the beginning of the region.   Unlike matches(), lookingAt() doesn’t require that the entire region be matched.  When the match succeeds, more information can be obtained by calling Matcher’s start(), end(), and group() methods 
+- boolean find():  Attempt to find the next instance of the input sequence that matches the pattern. n. It can start at the beginning of this matcher’s region. Or, if a previous call to this method was successful and the matcher hasn’t since been reset (by calling Matcher’s Matcher reset() or Matcher reset(CharSequence input) method), it will start at the first character not matched by the previous match.   When the match succeeds, more information can be obtained by calling Matcher’s start(), end(), and group() methods. 
+
+**Note** ： A matcher finds matches in a subset of its input called the region. By default, the region contains all of the matcher’s input. The region can be modified by calling Matcher’s Matcher region(int start, int end) method (set the limits of this matcher’s region) and queried by calling Matcher’s int regionStart() and int regionEnd() methods. 
+
+***Listing 9-1. Playing with Regular Expressions*** 
+
+```java
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
+
+public class RegExDemo {
+    public static void main(String[] args) {
+        if (args.length != 2) {
+            System.err.println("usage: java RegExDemo regex input");
+            return;
+        }
+        try {
+            System.out.println("regex = " + args[0]);
+            System.out.println("input = " + args[1]);
+            Pattern p = Pattern.compile(args[0]);
+            Matcher m = p.matcher(args[1]);
+            while (m.find())
+                System.out.println("Located [" + m.group() + "] starting at "
+                        + m.start() + " and ending at " +
+                        (m.end() - 1));
+        } catch (PatternSyntaxException pse) {
+            System.err.println("Bad regex: " + pse.getMessage());
+            System.err.println("Description: " + pse.getDescription());
+            System.err.println("Index: " + pse.getIndex());
+            System.err.println("Incorrect pattern: " + pse.getPattern());
+        }
+    }
+}
+```
+
+使用`\\`转义。
+
+#### Character Classes 
+
+- [xyz] 
+- [^xyz]  非
+- [a-z]  区间
+-  [abc[u-z]]  组合
+- [a-c&&[c-f]]    和  结果是c
+-  [a-z&&[ ^x-z]]   
+
+***Table 9-3. Predefined Character Classes*** 
+
+| Predefined Character Class | Description                                                  |
+| -------------------------- | ------------------------------------------------------------ |
+| \d                         | Match any digit character. \d is equivalent to [0-9].        |
+| \D                         | Match any nondigit character. \D is equivalent to [ ^\d].    |
+| \s                         | Match any whitespace character. \s is equivalent to [\t\n\x0B\f\r ]. |
+| \S                         | Match any nonwhitespace character. \S is equivalent to [ ^\s]. |
+| \w                         | Match any word character. \w is equivalent to [a-zA-Z0-9].   |
+| \W                         | Match any nonword character. \W is equivalent to [ ^\w].     |
+
+#### Capturing Groups 
+
+#### Boundary Matchers and Zero-Length Matches 
+
+***Table 9-4. Boundary Matchers*** 
+
+| Boundary Matcher | Description                                                 |
+| ---------------- | ----------------------------------------------------------- |
+| ^                | Match beginning of line.                                    |
+| $                | Match end of line.                                          |
+| \b               | Match word boundary.                                        |
+| \B               | Match nonword boundary                                      |
+| \A               | Match beginning of text.                                    |
+| \G               | Match end of previous match.                                |
+| \Z               | Match end of text except for line terminator (when present) |
+| \z               | Match end of text.                                          |
+
+#### Quantifiers 
+
+` (.*) ` 匹配最长 ` (.*?) `匹配最短。
+
+#### Practical Regular Expressions 
+
+```
+java RegExDemo "(\(\d{3}\))?\s*\d{3}-\d{4}" "(800) 555-1212"
+regex = (\(\d{3}\))?\s*\d{3}-\d{4}
+input = (800) 555-1212
+Located [(800) 555-1212] starting at 0 and ending at 13
+java RegExDemo "(\(\d{3}\))?\s*\d{3}-\d{4}" 555-1212
+regex = (\(\d{3}\))?\s*\d{3}-\d{4}
+input = 555-1212
+Located [555-1212] starting at 0 and ending at 7
+```
+
+**Note** : To learn more about regular expressions, check out “Lesson: Regular Expressions” at http://download.oracle.com/javase/tutorial/ essential/regex/index.html in The Java Tutorials. 
+
+#### EXERCISES 
+
+```
+The following exercises are designed to test your understanding of Chapter 9’s content:
+1. Define regular expression.
+2. What does the Pattern class accomplish?
+3. What do Pattern’s compile() methods do when they discover
+illegal syntax in their regular expression arguments?
+4. What does the Matcher class accomplish?
+5. What is the difference between Matcher’s matches() and
+lookingAt() methods?
+6. Define character class.
+7. Identify the various kinds of character classes.
+8. True or false: An intersection character class consists of multiple
+&&-separated nested character classes, where at least one nested
+character class is a negation character class, and matches all
+characters except for those indicated by the negation character
+class/classes.
+9. Define capturing group.
+10. What is a zero-length match?
+11. Define quantifier.
+12. What is the difference between greedy and reluctant quantifiers?
+13. How do possessive and greedy quantifiers differ?
+14. Create a ReplaceText application that takes input text, a pattern
+that specifies text to replace, and replacement text command-line
+arguments, and uses Matcher’s String replaceAll(String
+replacement) method to replace all matches of the pattern with
+the replacement text (passed to replacement). For example,
+java ReplaceText "too many embedded spaces"
+"\s+" " " should output too many embedded spaces with
+only a single space character between successive words.
+```
+
+#### Summary 
+
+Text-processing applications often need to match text against patterns. NIO includes regular expressions to help these applications perform pattern matching with high performance. Java supports regular expressions by providing the Pattern, PatternSyntaxException, and Matcher classes. 
+
+In this chapter, you explored Pattern, PatternSyntaxException, and Matcher. You then learned about character classes, capturing groups, boundary matchers and zero-length matches, and quantifiers. Finally, you observed a practical use case for regexes: phone number matching. 
+
+### Chapter 10 Charsets 
+
+介绍java.nio.charset 包和java.lang.String 类有关的部分。
+
+#### A Brief Review of the Fundamentals 
+
