@@ -4599,3 +4599,340 @@ In this chapter, you explored Pattern, PatternSyntaxException, and Matcher. You 
 
 #### A Brief Review of the Fundamentals 
 
+Java使用Unicode来表示字符。Unicode是一个16位字符集标准 [实际上，更多的是编码标准，因为有些字符是由多个数值表示的;每个值都被称为代码点 ]，目标是将世界上所有有意义的字符集合映射成一个全部包含的map。虽然这让使用不用语言的字符很容易，但不能全自动经常需要使用编码。在我深入探讨这个主题之前，您应该理解以下术语：
+
+- Character: A meaningful symbol. For example, “$” and “E” are characters.  These symbols predate the computer era(时代)。
+- Character set: characters 的set。例如，大写英文字母A-Z可以被认为形成一个 character set。没有分配数字值。和Unicode, ASCII, EBCDIC 或任意字符集标准没关系。
+- Coded character set:  一个character set 每个character 被分配为独立的数字值。标准体比如US-ASCII or ISO-8859-1 定义从字符到数字值的映射。
+- Character-encoding scheme:  coded character set的 numeric values到这些值代表的字节序列的encoding。一些encoding是一对一的。例如， ASCII ，A被映射为integer 65 ，使用integer 65 被encoded。一些其他的mappings是一对一或者一对多的。例如， UTF-8 编码Unicode 字符。每个数字值小于128的字符被编码为单字节，来和 ASCII兼容。其他Unicode characters被编码为wo-to-six-byte 序列。See www.ietf.org/rfc/rfc2279.txt for more information. 
+- Charset: 一个 coded character set 结合character-encoding scheme 。被描述为 java.nio.charset.Charset 抽象类。
+
+虽然Unicode被大范围使用，其他character set standards也被使用。因为操作系统在byte级别执行I/O，文件用字节序列存储数据，有必要在 byte sequences 和要被编码为字节序列的characters 之间转化。
+
+#### Working with Charsets 
+
+从JDK 1.4，JVMs 被要求支持一个标准的charset集合，可以支持额外charsets 。也支持default charset ，不需要是标准集的一个，在JVM启动时获得。Table 10-1 identifies and describes the standard charsets. 
+
+***Table 10-1. Standard Charsets*** 
+
+| Charset Name | Description                                                  |
+| ------------ | ------------------------------------------------------------ |
+| US-ASCII     | Seven-bit ASCII, which forms the American-English character set. Also known as the basic Latin block in Unicode. |
+| ISO-8859-1   | The 8-bit character set used by most European languages. It’s a superset of ASCII and includes most non-English European characters. |
+| UTF-8        | An 8-bit byte-oriented character encoding for Unicode. Characters are encoded in one to six bytes. |
+| UTF-16BE     | A 16-bit encoding using big-endian order for Unicode. Characters are encoded in two bytes with the high-order eight bits written first. |
+| UTF-16LE     | A 16-bit encoding using little-endian order for Unicode. Characters are encoded in two bytes with the low-order eight bits written first. |
+| UTF-16       | A 16-bit encoding whose endian order is determined by an optional byte-order mark. |
+
+Charset names不分大小写，由 Internet Assigned Names Authority (IANA)维护。
+
+***Listing 10-1. Using Charsets to Encode Characters into Byte Sequences*** 
+
+```java
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-15 16:01
+ */
+public class CharsetDemo {
+    public static void main(String[] args) {
+        String msg = "façade touché";
+        String[] csNames =
+                {
+                        "US-ASCII",
+                        "ISO-8859-1",
+                        "UTF-8",
+                        "UTF-16BE",
+                        "UTF-16LE",
+                        "UTF-16"
+                };
+        encode(msg, Charset.defaultCharset());
+        for (String csName: csNames)
+            encode(msg, Charset.forName(csName));
+    }
+
+    static void encode(String msg, Charset cs) {
+        System.out.println("Charset: " + cs.toString());
+        System.out.println("Message: " + msg);
+
+        ByteBuffer buffer = cs.encode(msg);
+        System.out.println("Encoded: ");
+
+        for (int i = 0; buffer.hasRemaining(); i++) {
+            int _byte = buffer.get() & 255;
+            char ch = (char) _byte;
+            if (Character.isWhitespace(ch) || Character.isISOControl(ch)) {
+                ch = '\u0000';
+            }
+            System.out.printf("%2d: %02x (%c)%n", i, _byte, ch);
+        }
+        System.out.println();
+    }
+}
+```
+
+main() next iterates over the bytes in the byte buffer, converting each byte to a character. It uses java.lang.Character’s isWhitespace() and isISOControl() methods to determine if the character is whitespace or a control character (neither is regarded as printable) and converts such a character to Unicode 0 (an empty string). (A carriage return or newline would screw up the output, for example.) 
+
+Finally, the index of the character, its hexadecimal value, and the character itself are printed to the standard output stream. I chose to use System.out. printf() for this task. You’ll learn about this method in the next chapter. 
+
+```
+"C:\Program Files\Java\jdk1.8.0_161\bin\java.exe" "-javaagent:C:\Program Files\JetBrains\IntelliJ IDEA 2018.1.6\lib\idea_rt.jar=57257:C:\Program Files\JetBrains\IntelliJ IDEA 2018.1.6\bin" -Dfile.encoding=UTF-8 -classpath "C:\Program Files\Java\jdk1.8.0_161\jre\lib\charsets.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\deploy.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\access-bridge-64.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\cldrdata.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\dnsns.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\jaccess.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\jfxrt.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\localedata.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\nashorn.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\sunec.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\sunjce_provider.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\sunmscapi.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\sunpkcs11.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\ext\zipfs.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\javaws.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\jce.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\jfr.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\jfxswt.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\jsse.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\management-agent.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\plugin.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\resources.jar;C:\Program Files\Java\jdk1.8.0_161\jre\lib\rt.jar;E:\SpringSourceCode\target\classes;D:\Maven\repository\junit\junit\4.11\junit-4.11.jar;D:\Maven\repository\org\hamcrest\hamcrest-core\1.3\hamcrest-core-1.3.jar;D:\Maven\repository\org\springframework\spring-core\5.0.7.RELEASE\spring-core-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-jcl\5.0.7.RELEASE\spring-jcl-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-beans\5.0.7.RELEASE\spring-beans-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-context\5.0.7.RELEASE\spring-context-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-expression\5.0.7.RELEASE\spring-expression-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-aop\5.0.7.RELEASE\spring-aop-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-tx\5.0.7.RELEASE\spring-tx-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-aspects\5.0.7.RELEASE\spring-aspects-5.0.7.RELEASE.jar;D:\Maven\repository\org\aspectj\aspectjweaver\1.8.13\aspectjweaver-1.8.13.jar;D:\Maven\repository\org\springframework\spring-webmvc\5.0.7.RELEASE\spring-webmvc-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-web\5.0.7.RELEASE\spring-web-5.0.7.RELEASE.jar;D:\Maven\repository\org\springframework\spring-test\5.0.7.RELEASE\spring-test-5.0.7.RELEASE.jar;D:\Maven\repository\com\google\guava\guava\25.1-jre\guava-25.1-jre.jar;D:\Maven\repository\com\google\code\findbugs\jsr305\3.0.2\jsr305-3.0.2.jar;D:\Maven\repository\org\checkerframework\checker-qual\2.0.0\checker-qual-2.0.0.jar;D:\Maven\repository\com\google\errorprone\error_prone_annotations\2.1.3\error_prone_annotations-2.1.3.jar;D:\Maven\repository\com\google\j2objc\j2objc-annotations\1.1\j2objc-annotations-1.1.jar;D:\Maven\repository\org\codehaus\mojo\animal-sniffer-annotations\1.14\animal-sniffer-annotations-1.14.jar;D:\Maven\repository\javax\servlet\servlet-api\2.5\servlet-api-2.5.jar" com.jasu.nio._10_Charsets.CharsetDemo
+Charset: UTF-8
+Message: façade touché
+Encoded: 
+ 0: 66 (f)
+ 1: 61 (a)
+ 2: c3 (Ã)
+ 3: a7 (§)
+ 4: 61 (a)
+ 5: 64 (d)
+ 6: 65 (e)
+ 7: 20 ( )
+ 8: 74 (t)
+ 9: 6f (o)
+10: 75 (u)
+11: 63 (c)
+12: 68 (h)
+13: c3 (Ã)
+14: a9 (©)
+
+Charset: US-ASCII
+Message: façade touché
+Encoded: 
+ 0: 66 (f)
+ 1: 61 (a)
+ 2: 3f (?)
+ 3: 61 (a)
+ 4: 64 (d)
+ 5: 65 (e)
+ 6: 20 ( )
+ 7: 74 (t)
+ 8: 6f (o)
+ 9: 75 (u)
+10: 63 (c)
+11: 68 (h)
+12: 3f (?)
+
+Charset: ISO-8859-1
+Message: façade touché
+Encoded: 
+ 0: 66 (f)
+ 1: 61 (a)
+ 2: e7 (ç)
+ 3: 61 (a)
+ 4: 64 (d)
+ 5: 65 (e)
+ 6: 20 ( )
+ 7: 74 (t)
+ 8: 6f (o)
+ 9: 75 (u)
+10: 63 (c)
+11: 68 (h)
+12: e9 (é)
+
+Charset: UTF-8
+Message: façade touché
+Encoded: 
+ 0: 66 (f)
+ 1: 61 (a)
+ 2: c3 (Ã)
+ 3: a7 (§)
+ 4: 61 (a)
+ 5: 64 (d)
+ 6: 65 (e)
+ 7: 20 ( )
+ 8: 74 (t)
+ 9: 6f (o)
+10: 75 (u)
+11: 63 (c)
+12: 68 (h)
+13: c3 (Ã)
+14: a9 (©)
+
+Charset: UTF-16BE
+Message: façade touché
+Encoded: 
+ 0: 00 ( )
+ 1: 66 (f)
+ 2: 00 ( )
+ 3: 61 (a)
+ 4: 00 ( )
+ 5: e7 (ç)
+ 6: 00 ( )
+ 7: 61 (a)
+ 8: 00 ( )
+ 9: 64 (d)
+10: 00 ( )
+11: 65 (e)
+12: 00 ( )
+13: 20 ( )
+14: 00 ( )
+15: 74 (t)
+16: 00 ( )
+17: 6f (o)
+18: 00 ( )
+19: 75 (u)
+20: 00 ( )
+21: 63 (c)
+22: 00 ( )
+23: 68 (h)
+24: 00 ( )
+25: e9 (é)
+
+Charset: UTF-16LE
+Message: façade touché
+Encoded: 
+ 0: 66 (f)
+ 1: 00 ( )
+ 2: 61 (a)
+ 3: 00 ( )
+ 4: e7 (ç)
+ 5: 00 ( )
+ 6: 61 (a)
+ 7: 00 ( )
+ 8: 64 (d)
+ 9: 00 ( )
+10: 65 (e)
+11: 00 ( )
+12: 20 ( )
+13: 00 ( )
+14: 74 (t)
+15: 00 ( )
+16: 6f (o)
+17: 00 ( )
+18: 75 (u)
+19: 00 ( )
+20: 63 (c)
+21: 00 ( )
+22: 68 (h)
+23: 00 ( )
+24: e9 (é)
+25: 00 ( )
+
+Charset: UTF-16
+Message: façade touché
+Encoded: 
+ 0: fe (þ)
+ 1: ff (ÿ)
+ 2: 00 ( )
+ 3: 66 (f)
+ 4: 00 ( )
+ 5: 61 (a)
+ 6: 00 ( )
+ 7: e7 (ç)
+ 8: 00 ( )
+ 9: 61 (a)
+10: 00 ( )
+11: 64 (d)
+12: 00 ( )
+13: 65 (e)
+14: 00 ( )
+15: 20 ( )
+16: 00 ( )
+17: 74 (t)
+18: 00 ( )
+19: 6f (o)
+20: 00 ( )
+21: 75 (u)
+22: 00 ( )
+23: 63 (c)
+24: 00 ( )
+25: 68 (h)
+26: 00 ( )
+27: e9 (é)
+
+
+Process finished with exit code 0
+
+```
+
+As well as providing encoding methods such as the aforementioned ByteBuffer encode(String s) method, Charset provides a complementary CharBuffer decode(ByteBuffer buffer) decoding method. The return type is java.nio.CharBuffer because byte sequences are decoded into characters. 
+
+**Note** ByteBuffer encode(String s) is a convenience method for specifying CharBuffer.wrap(s) and passing the result to the ByteBuffer encode(CharBuffer buffer) method. 
+
+If you dig deeper into Charset, you’ll encounter the following pair of methods: 
+
+- CharsetEncoder newEncoder() 
+- CharsetDecoder newDecoder() 
+
+These methods perform the actual work of encoding and decoding. Charset’s encode() and decode() methods delegate to the java.nio. charset.CharsetEncoder and java.nio.charset.CharsetDecoder objects returned from newEncoder() and newDecoder(), and invoke their encode() and decode() (along with additional) methods. (For brevity, I don’t discuss CharsetEncoder and CharsetDecoder.) 
+
+#### Charsets and the String Class 
+
+The String class describes a string as a sequence of characters. It declares constructors that can be passed byte arrays. Because a byte array contains an encoded character sequence, a charset is required to decode them.  Here is a partial list of String constructors that work with charsets: 
+
+- String(byte[] data): Constructs a new String instance by decoding the specified array of bytes using the platform’s default charset. 
+- String(byte[] data, int offset, int byteCount): Constructs a new String instance by decoding the specified subsequence of the byte array using the platform’s default charset. 
+- String(byte[] data, String charsetName): Constructs a new String instance by decoding the specified array of bytes using the named charset. 
+
+Furthermore, String declares methods that encode its sequence of characters into a byte array with help from the default charset or a named charset. Two of these methods are described here: 
+
+- byte[] getBytes(): Returns a new byte array containing the characters of this string encoded using the platform’s default charset. 
+- byte[] getBytes(String charsetName): Returns a new byte array containing the characters of this string encoded using the named charset. 
+
+Note that String(byte[] data, String charsetName) and byte[] getBytes(String charsetName) throw java.io.UnsupportedEncodingException when the charset isn’t supported 
+
+I’ve created a small application that demonstrates String and charsets. Listing 10-2 presents the source code .
+
+***Listing 10-2. Using Charsets with String*** 
+
+```java
+import java.io.UnsupportedEncodingException;
+public class CharsetDemo
+{
+ public static void main(String[] args)
+ throws UnsupportedEncodingException
+ {
+ byte[] encodedMsg =
+ {
+ 0x66, 0x61, (byte) 0xc3, (byte) 0xa7, 0x61, 0x64, 0x65, 0x20, 0x74,
+ 0x6f, 0x75, 0x63, 0x68, (byte) 0xc3, (byte) 0xa9
+ };
+ String s = new String(encodedMsg, "UTF-8");
+ System.out.println(s);
+ System.out.println();
+ byte[] bytes = s.getBytes();
+ for (byte _byte: bytes)
+ System.out.print(Integer.toHexString(_byte & 255) + " ");
+ System.out.println();
+ }
+}
+
+```
+
+Listing 10-2’s main() method first creates a byte array containing a UTF-8 encoded message. It then converts this array to a String object via the UTF-8 charset.  After outputting the resulting String object, it extracts this object’s bytes into a new byte array and proceeds to output these bytes in hexadecimal format. As demonstrated earlier in this chapter, I bitwise AND each byte value with 255 to remove the 0xFF sign extension bytes for negative integers when the 8-bit byte integer value is converted to a 32-bit integer value. These sign extension bytes would otherwise be output. 
+
+```
+façade touché
+66 61 e7 61 64 65 20 74 6f 75 63 68 e9
+```
+
+You might be wondering why you observe e7 instead of c3 a7 (Latin small letter c with a cedilla [a hook or tail]) and e9 instead of c3 a9 (Latin small letter e with an acute accent). The answer is that I invoked the noargument getBytes() method to encode the string. This method uses the default charset, which is windows-1252 on my platform. According to this charset, e7 is equivalent to c3 a7 and e9 is equivalent to c3 a9. The result is a shorter encoded sequence. 
+
+#### EXERCISES 
+
+```
+The following exercises are designed to test your understanding of Chapter 10’s content:
+ 1. Define charset.
+ 2. What is the purpose of the Charset class?
+ 3. Identify the standard charsets supported by the JVM.
+ 4. What is the purpose of the byte order mark?
+ 5. How do you obtain the default charset?
+6. What does Charset’s Charset forName(String charsetName)
+factory method do when the desired charset isn’t supported by the JVM?
+ 7. How would you typically encode a string via a Charset instance?
+ 8. Identify the Charset methods that perform the actual encoding and
+decoding tasks.
+ 9. What does String’s byte[] getBytes() method accomplish?
+10. Write an AvailCharsets application that obtains and outputs a
+map of all charsets that the current JVM supports. (Hint: You’ll find the
+method that returns this map in the Charset class.)
+
+```
+
+#### Summary 
+
+Charsets combine coded character sets with character-encoding schemes. They’re used to translate between byte sequences and the characters that are encoded into these sequences. Java supports charsets by providing Charset and related classes. It also uses charsets with the String class. Chapter 11 presents NIO’s java.util.Formatter class and related types. 
+
