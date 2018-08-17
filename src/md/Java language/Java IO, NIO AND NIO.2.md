@@ -4936,3 +4936,337 @@ method that returns this map in the Charset class.)
 
 Charsets combine coded character sets with character-encoding schemes. They’re used to translate between byte sequences and the characters that are encoded into these sequences. Java supports charsets by providing Charset and related classes. It also uses charsets with the String class. Chapter 11 presents NIO’s java.util.Formatter class and related types. 
 
+### Chapter 11 Formatter  
+
+JSR 51 (http://jcp.org/en/jsr/detail?id=51) 的描述了一个简单的printf风格的格式化工具被提议纳NIO。使printf（）函数有用的一个特性是*varargs* ，传递可变数量的参数。因为JDK 5前不支持varargs ，JDK5添加了prinf()
+
+#### Exploring Formatter 
+
+JDK5引入java.util.Formatter 作为interpreter 用于printf()-style format strings 。这个类支持layout justification and alignment（布局调整和对齐 ）； numeric, string, and date/time data 的通用format；和更多。用的Java类型被支持（such as byte and java.math.BigDecimal ）。
+
+注意：java.lang.Appendable 接口描述了char values and character sequences 可以被添加的对象。format输出的类（例如StringBuilder ）实现Appendable 。
+
+It’s cumbersome to have to create and manage a Formatter object when all you want to do is achieve something equivalent to the C language’s printf() function. Java addresses this situation by adding format() and the equivalent printf() methods to the java.io.PrintStream class.
+
+Of the various formatter-oriented methods added to PrintStream, you’ll often invoke PrintStream printf(String format, Object... args). After sending its formatted content to the print stream, this method returns a reference to this stream so that you can chain method calls together. 
+
+***Listing 11-2. Formatting via printf()*** 
+
+```java
+public class FormatterDemo
+{
+ public static void main(String[] args)
+ {
+ System.out.printf("%04X%n", 478);
+ System.out.printf("Current date: %1$tb %1$te, %1$tY%n",
+ System.currentTimeMillis());
+ }
+}
+
+```
+
+```
+01DE
+Current date: Jul 28, 2015
+```
+
+#### Exploring Formattable and FormattableFlags 
+
+#### EXERCISES 
+
+```
+The following exercises are designed to test your understanding of Chapter 11’s content:
+1. Identify the three nonexception types that contribute to NIO’s
+printf-style formatting facility.
+2. How do you reference an argument from within a format specifier
+string?
+3. What does the %n format specifier accomplish?
+4. Modify Listing 11-1 so that FormatterDemo’s output isn’t
+concatenated into one long string.
+```
+
+#### Summary 
+
+JDK 5 introduced the Formatter class as an interpreter for printf()-style format strings. This class provides support for layout justification and alignment; common formats for numeric, string, and date/time data; and more. Commonly used Java types (such as byte and BigDecimal) are supported. 
+
+Formatter declares several constructors for creating Formatter objects. These constructors let you specify where you want formatted output to be sent. For example, Formatter() writes formatted output to an internal StringBuilder instance. You can access the destination by calling Formatter’s Appendable out() method. 
+
+After creating a Formatter object, call a format() method to format a varying number of values. For example, Formatter format(String format, Object... args) formats the args array according to the string of format specifiers passed to the format parameter, and returns a reference to the invoking Formatter so that you can chain the format() calls together. 
+
+It’s cumbersome to have to create and manage a Formatter object when all you want to do is achieve something equivalent to the C language’s printf() function. Java addresses this situation by adding format() and equivalent printf() methods (such as PrintStream printf(String format, Object... args)) to the PrintStream class. 
+
+Formatter is accompanied by a Formattable interface and a FormattableFlags class that collectively support limited formatting customization for arbitrary user-defined types. Formattable is implemented by any class that needs to perform custom formatting using Formatter’s “s” (format argument as string) conversion character. 
+
+## Part IV More New I/O APIs 
+
+### Chapter 12 Improved File System Interface 
+
+NIO.2 改进了file system interface。
+
+**Note** A file system manages files, which are classified as regular files, directories, symbolic links (https://en.wikipedia.org/wiki/Symbolic_ link), and hard links (https://en.wikipedia.org/wiki/Hard_link). 
+
+#### Architecting a Better File Class 
+
+ File-based file system是有问题的。以下是几个问题：
+
+- 很多方法返回boolean而不抛异常。结果是你不知道为什么操作失败了。比如， delete()  返回false，你不知道为什么删不了
+- File 不支持文件系统特定的symbolic links and hard links 。
+- File只提供有限file attributes set的访问。例如，不支持访问access control lists (ACLs) (https://en.wikipedia.org/wiki/Access_ control_list)。
+- File 不支持高效的文件属性访问。每个query 导致调用底层操作系统。
+- File 不能扩展到大文件夹。请求文件大目录导致应用hang住。大文件夹也导致内存资源问题，导致拒绝服务。
+- File 被限制在default file system （JVM 可以访问的file system ）。不支持替代方案，比如基于内存的文件系统。
+- File没提供file-copy or a file-move能力。renameTo() 方法，在文件移动上下文经常使用，在不同操作系统下结果不一致。
+
+NIO.2 provides an improved file system interface that offers solutions to the previous problems. Some of its features are listed here: 
+
+- 方法抛出异常
+- 支持symbolic links 
+- 对文件属性广泛和有效的支持
+- Directory streams 
+- custom file system providers 支持alternative file systems  
+- 支持 file copying and file moving 
+- 支持walking the file tree /visiting files  and watching directories 
+
+ improved file system interface 主要由以下几个包实现：
+
+- java.nio.file: 为访问文件系统和文件提供接口和类。
+- java.nio.file.attribute: 为访问文件属性提供接口和类。
+- java.nio.file.spi: 为创建文件系统实现提供类
+
+These packages organize many types. FileSystem, FileSystems, and FileSystemProvider form the core of the improved file system interface. 
+
+##### File Systems and File System Providers 
+
+操作系统可以承载一个或多个文件系统 。例如，Unix/ Linux 结合所有安装的磁盘到一个虚拟文件系统。Windows将一个单独的文件系统与每个活动磁盘驱动器相关联;  for example, FAT16 for drive A: and NTFS for drive C: 。
+
+java.nio.file.FileSystem 类interfaces between Java code and a file system 。另外，FileSystem是一个工厂，可以得到很多类型的file system-related objects(比如file stores and paths ）和services（such as watch services ）。
+
+FileSystem 不能实例化因为是抽象的。代替的是，java.nio.file.FileSystems util类通过工厂方法获得FileSystems。例如，FileSystem getDefault() 方法返回默认的 FileSystem 对象。
+
+```java
+FileSystem fsDefault = FileSystems.getDefault();
+```
+
+FileSystems也声明了FileSystem getFileSystem(URI uri) 方法得到路径关联的FileSystem 。也声明了3个newFileSystem() 方法创建新FileSystems。
+
+java.nio.file.spi.FileSystemProvider 类被FileSystems的工厂方法使用来获得或创建文件系统。一个具体的FileSystemProvider子类实现了很多方法用于 copying, moving, and deleting files；obtaining a path ；reading attributes and the targets of symbolic links ；creating directories, links, and symbolic links ；等等。
+
+Figure 12-1 shows how FileSystem, FileSystems, and FileSystemProvider are related. 
+
+![1534477108216](https://github.com/konekos/notes/blob/master/src/pic/1534477108216.png?raw=true)
+
+A Java implementation provides concrete FileSystemProvider subclasses that describe different kinds of file system providers. If you’re curious about the file system providers supported by your Java implementation, run the application whose source code appears in Listing 12-1. 
+
+***Listing 12-1. Identifying Installed File System Providers*** 
+
+```java
+public class FileSystemDemo {
+    public static void main(String[] args) {
+
+        List<FileSystemProvider> fileSystemProviders = FileSystemProvider.installedProviders();
+        for (FileSystemProvider provider : fileSystemProviders) {
+            System.out.println(provider);
+        }
+    }
+}
+```
+
+Listing 12-1 invokes FileSystemProvider’s List installedProviders() class method to obtain a list of the installed file system providers. It then iterates over this list, implicitly invoking each provider’s toString() method and outputting the resulting string. 
+
+```
+un.nio.fs.WindowsFileSystem@5a07e868
+sun.nio.fs.WindowsFileSystemProvider@279f2327
+com.sun.nio.zipfs.ZipFileSystemProvider@2ff4acd0
+```
+
+This output tells me two things: FileSystems that interface to the file systems that are native to my Windows 7 operating system are obtained from the WindowsFileSystemProvider subclass. Also, I can obtain FileSystems that are based on ZIP files. 
+
+With few exceptions, NIO.2’s various types ultimately delegate to the foundational FileSystem, FileSystems, and FileSystemProvider types. 
+
+
+
+#### Locating Files with Paths 
+
+A file system stores files (definitely regular files and directories, and possibly symbolic links and hard links).  Files are typically stored in hierarchies and are located by specifying paths, which are compact maps that navigate these hierarchies via separated name element sequences.
+
+java.nio.file.Path 接口代表一个文件路径。
+
+**Note** Path declares FileSystem getFileSystem() to return a reference to the FileSystem that created the file described by the Path object .
+
+Path 可以表示root，root和name序列，或者一个或多个name元素。使用empty path 访问文件等同于访问file system’s default directory。
+
+**注意**：File声明了File toFile() 返回代表路径的File 。当path对象没和默认provider关联抛出UnsupportedOperationException 。声明 Path toPath() 返回代表File object’s abstract path的Path对象。这些方法让你在源码里混合File和Path，您可以慢慢地将遗留的基于File的代码转换为使用改进的文件系统接口的代码。
+
+##### Getting a Path and Accessing Its Name Elements 
+
+FileSystem 提供Path getPath(String first, String... more) 返回Path对象。第一个参数是 path string 的开头部分。可变参数是后面连接起来形成完整路径。
+
+**注意**：当构建Path，name元素通常是用分隔符连接的（FileSystem’s String getSeparator() 返回）。The resulting path string represents a systemdependent file path。
+
+Consider the following example: 
+
+```java
+Path path = fsDefault.getPath("x", "y");
+```
+
+This example constructs a Path with y subordinate to x. You could also construct this Path as follows: 
+
+```
+Path path = fsDefault.getPath("x\\y");
+```
+
+Unlike in the former example, I’ve included the backslash (\) name-separator character (escaped to satisfy the Java compiler) that Windows understands. 
+
+路径必须符合语法。不合法InvalidPathException 
+
+NIO.2 提供更便利的工具类java.nio.file.Paths ，返回Path objects 的方法：
+
+- Path get(String first, String... more) 
+- Path get(URI uri) 
+
+The first method is equivalent to calling getPath() on the default file system and returning the result: 
+
+```
+return FileSystems.getDefault().getPath(first, more);
+```
+
+The second method is a bit more involved. It iterates over the installed file system providers to locate the provider that is identified by the given URI’s scheme component. When this provider is found for the file scheme, this method executes the following code: 
+
+```
+return FileSystems.getDefault().provider().getPath(uri);
+```
+
+After obtaining the default file system, FileSystem’s FileSystemProvider provider() method is called to return the file system provider that created the FileSystem object. Then, FileSystemProvider’s Path getPath(URI uri) method is called to convert the URI argument to a Path object. 
+
+For any other scheme, the installed providers list is searched for the first provider with a matching scheme. getPath(uri) is called on the provider. 
+
+get(String, String...) throws InvalidPathException when a path cannot be constructed because of bad syntax. get(URI) throws java.nio.file. FileSystemNotFoundException when no FileSystem matches the scheme and java.lang.IllegalArgumentException for a bad URI. 
+
+Path declares several methods for accessing its name elements: 
+
+- Path getFileName(): 返回Filename的Path对象。
+- Path getName(int index): 返回indexth name element The index starts at 0, which represents the element closest to the root. The element farthest from the root is identified by one less than the name count. 
+- int getNameCount(): Return the number of name elements in the path. 
+- Path getParent(): Return the parent path or null when there is no parent. 
+- Path getRoot(): Return the root name element in this path as a Path object or null when there is no root. 
+- Path subpath(int beginIndex, int endIndex): Return a relative path that is a subsequence of the name elements in this path. The first name element (closest to the root) is located at beginIndex and the last name element (farthest from the root) is located at one less than endIndex. 
+
+
+
+##### Relative and Absolute Paths 
+
+前面的路径示例演示了相对路径。 你可以调用Path’s boolean isAbsolute() 来证实。这个方法返回false表示路径不是绝对的。 创建一条绝对路径，您需要将根作为第一个名称元素。 
+
+调用FileSystem’s Iterable getRootDirectories() 获得file system’s root(s) ，它返回一个迭代器，而不是路径实例描述的ROOT。 Listing 12-3 presents the source code to an application that demonstrates this method and absolute path creation. 
+
+***Listing 12-3. Demonstrating Root Directory Iteration and Absolute Path Creation*** 
+
+```java
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-17 18:13
+ */
+public class RelativePath {
+    public static void main(String[] args) {
+
+        FileSystem aDefault = FileSystems.getDefault();
+        Path path = aDefault.getPath("a", "b", "c");
+        System.out.println(path + " , " + path.isAbsolute());
+        System.out.println(path.getRoot());
+
+        Iterable<Path> rootDirectories = aDefault.getRootDirectories();
+
+        for (Path root : rootDirectories) {
+            path = aDefault.getPath(root.toString(), "a", "b", "c");
+
+            System.out.println(path + " , " + path.isAbsolute());
+            System.out.println(path.getRoot());
+
+        }
+    }
+}
+```
+
+```
+a\b\c , false
+null
+C:\a\b\c , true
+C:\
+D:\a\b\c , true
+D:\
+E:\a\b\c , true
+E:\
+F:\a\b\c , true
+F:\
+```
+
+If you have a relative path, you can convert it to an absolute path by calling Path’s Path toAbsolutePath() method, as demonstrated in Listing 12-4. 
+
+***Listing 12-4. Converting a Relative Path to an Absolute Path*** 
+
+```java
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-17 18:19
+ */
+public class AbsolutePathDemo {
+    public static void main(String[] args) {
+
+        Path path = Paths.get("a", "b", "c");
+        System.out.printf("Path: %s%n", path.toString());
+        System.out.printf("Absolute: %b%n", path.isAbsolute());
+        path = path.toAbsolutePath();
+        System.out.printf("Path: %s%n", path.toString());
+        System.out.printf("Absolute: %b%n", path.isAbsolute());
+    }
+}
+```
+
+Compile Listing 12-4 (javac PathDemo.java) and run the resulting application (java PathDemo). I observe the following output: 
+
+```
+Path: a\b\c
+Absolute: false
+Path: C:\prj\books\io\ch12\code\PathDemo\v3\a\b\c
+Absolute: true
+```
+
+根据toAbsolutePath()’s JDK 文档，如果path已经是绝对路径，返回path。否则，方法用取决于实现的方式处理path，typically by resolving the path against a file system default directory. Depending on the implementation, this method may throw an I/O error when the file system isn’t accessible. 
+
+
+
+##### Normalization, Relativization, and Resolution 
+
+##### Additional Capabilities 
+
+#### Performing File System Tasks with Files 
+
+##### Accessing File Stores 
+
+##### Managing Attributes 
+
+##### Managing Files and Directories 
+
+##### Managing Symbolic and Hard Links 
+
+##### Walking the File Tree 
+
+##### Working with Additional Capabilities 
+
+#### Using Path Matchers and Watch Services 
+
+##### Matching Paths 
+
+##### Watching Directories 
+
+#### Exercise
+
+#### Summary 
+
