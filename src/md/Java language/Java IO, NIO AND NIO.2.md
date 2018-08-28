@@ -5240,17 +5240,275 @@ Absolute: true
 
 根据toAbsolutePath()’s JDK 文档，如果path已经是绝对路径，返回path。否则，方法用取决于实现的方式处理path，typically by resolving the path against a file system default directory. Depending on the implementation, this method may throw an I/O error when the file system isn’t accessible. 
 
-
-
 ##### Normalization, Relativization, and Resolution 
+
+Path声明几个方法 来移除path冗余， to create a relative path between two paths, and to resolve (join) two paths: 
+
+- Path normalize() 
+- Path relativize(Path other) 
+- Path resolve(Path other) 
+- Path resolve(String other) 
+
+normalize()移除冗余，比如`reports/./2015/jan `。->` reports/2015/jan. `
+
+relativize() 在两个path之间创建相对路径。比如，给定`reports/2015/jan `，对于reports/2016/mar 的相对路径是 ../../2016/mar 。
+
+resolve() 和relativize()是反过来的。加入一个局部路径到另一个path。例如，resolve apr 对reports/2015 结果是reports/2015/apr 。
+
+另外，声明了下面方法对当前path的父path resolve a path string 。
+
+- Path resolveSibling(Path other) 
+- Path resolveSibling(String other) 
+
+***Listing 12-5. Normalizing, Relativizing, and Resolving Paths*** 
+
+```java
+import java.nio.file.FileSystems;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.Iterator;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-28 14:31
+ */
+public class NormalizationDemo {
+    public static void main(String[] args) {
+        Path path1 = Paths.get("reports", ".", "2015", "jan");
+        System.out.println(path1);
+        System.out.println(path1.normalize());
+
+        path1 = Paths.get("reports", "2015", "..", "jan");
+        System.out.println(path1);
+        System.out.println(path1.normalize());
+        System.out.println();
+
+        path1 = Paths.get("reports", "2015", "jan");
+        System.out.println(path1);
+        System.out.println(path1.relativize(Paths.get("reports", "2016", "mar")));
+
+        Iterator<Path> iterator = FileSystems.getDefault().getRootDirectories().iterator();
+        Path root = iterator.next();
+
+        try {
+            if (root != null) {
+                System.out.printf("Root: %s%n", root.toString());
+                Path path = Paths.get(root.toString(), "reports", "2016", "mar");
+                System.out.printf("Path: %s%n", path);
+                System.out.println(path1.relativize(path));
+            }
+        } catch (IllegalArgumentException e) {
+            e.printStackTrace();
+        }
+
+        System.out.println();
+        path1 = Paths.get("report", "2015");
+        System.out.println(path1);
+        System.out.println(path1.resolve("apr"));
+        System.out.println();
+        Path path2 = Paths.get("reports", "2015", "jan");
+        System.out.println(path2);
+        System.out.println(path2.getParent());
+        System.out.println(path2.resolveSibling(Paths.get("mar")));
+        System.out.println(path2.resolve(Paths.get("mar")));
+    }
+}
+```
+
+```
+reports\.\2015\jan
+reports\2015\jan
+reports\jan
+reports\2015\jan
+..\..\2016\mar
+Root: C:\
+Path: C:\reports\2016\mar
+java.lang.IllegalArgumentException: 'other' is different type of Path
+ at sun.nio.fs.WindowsPath.relativize(WindowsPath.java:388)
+ at sun.nio.fs.WindowsPath.relativize(WindowsPath.java:44)
+ at PathDemo.main(PathDemo.java:29)
+reports\2015
+reports\2015\apr
+reports\2015\jan
+reports\2015
+reports\2015\mar
+reports\2015\jan\mar
+```
+
+其中一个Path含有root不能relativize()。
 
 ##### Additional Capabilities 
 
+Path提供了比较paths，决定确定path以另一个path开头或者结尾，转换path为java.net.URI (Uniform Resource Identifier) object 。等等。
+
+***Listing 12-6. Demonstrating Additional Path Methods*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-28 15:29
+ */
+public class PathExtraDemo {
+    public static void main(String[] args) throws IOException {
+        Path path1 = Paths.get("a", "b", "c");
+        Path path2 = Paths.get("a", "b", "c", "d");
+        System.out.printf("path1: %s%n", path1.toString());
+        System.out.printf("path2: %s%n", path2.toString());
+        System.out.printf("path1.equals(path2): %b%n", path1.equals(path2));
+        System.out.printf("path1.equals(path2.subpath(0, 3)): %b%n",
+                path1.equals(path2.subpath(0, 3)));
+        System.out.printf("path1.compareTo(path2): %d%n",
+                path1.compareTo(path2));
+        System.out.printf("path1.startsWith(\"x\"): %b%n",
+                path1.startsWith("x"));
+        System.out.printf("path1.startsWith(Paths.get(\"a\"): %b%n",
+                path1.startsWith(Paths.get("a")));
+        System.out.printf("path2.endsWith(\"d\"): %b%n",
+                path2.startsWith("d"));
+        System.out.printf("path2.endsWith(Paths.get(\"c\", \"d\"): " +
+                        "%b%n",
+                path2.endsWith(Paths.get("c", "d")));
+        System.out.printf("path2.toUri(): %s%n", path2.toUri());
+        Path path3 = Paths.get(".");
+        System.out.printf("path3: %s%n", path3.toString());
+        System.out.printf("path3.toRealPath(): %s%n", path3.toRealPath());
+    }
+}
+```
+
+```
+path1: a\b\c
+path2: a\b\c\d
+path1.equals(path2): false
+path1.equals(path2.subpath(0, 3)): true
+path1.compareTo(path2): -2
+path1.startsWith("x"): false
+path1.startsWith(Paths.get("a"): true
+path2.endsWith("d"): false
+path2.endsWith(Paths.get("c", "d"): true
+path2.toUri(): file:///C:/prj/books/io/ch12/code/PathDemo/v5/a/b/c/d
+path3: .
+path3.toRealPath(): C:\prj\books\io\ch12\code\PathDemo\v5
+```
+
 #### Performing File System Tasks with Files 
+
+大多数情况，用FileSystem, FileSystems, and FileSystemProvider 就能执行很多文件系统任务，比如复制移动文件。然而，有一个更简单的方式执行这些任务：java.nio.file.Files 。
+
+**注意**：Files不提供path-matching and directory-watching支持。然而，只有Files支持walking the file tree and visiting its files。
 
 ##### Accessing File Stores 
 
+FileSystem依赖java.nio.file.FileStore 类提供 file stores 的信息，它们是 storage pools, devices, partitions, volumes, concrete file systems, or other implementation-specific means of file storage 。一个 file store包含name，type，space amounts (in bytes), and other information。
+
+Files 声明FileStore getFileStore(Path path) 返回FileStore ，代表存储path的file store 。拿到FileStore ，可以用以下方法：
+
+- long getTotalSpace(): Return the size, in bytes, of the file store. 
+- long getUnallocatedSpace(): Return the number of unallocated bytes in the file store. 这是一个hint ，不是guarantee。
+- long getUsableSpace(): Return the number of bytes available to this JVM on the file store.  hint 。
+- boolean isReadOnly():  Return true when this file store is read-only.
+- String name():  Return the name of this file store. The returned string may differ from the string returned by the toString() method. 
+- String type():  Return the type of this file store. The format of the returned string is highly implementationspecific. It may indicate, for example, the format used or whether the file store is local or remote. 
+
+***Listing 12-7. Accessing a File Store and Outputting File Store Details*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.FileStore;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-28 17:45
+ */
+public class FileStoreDemo {
+
+    public static void main(String[] args) throws IOException {
+        FileStore fs = Files.getFileStore(Paths.get("."));
+        System.out.printf("Total space: %d%n", fs.getTotalSpace());
+        System.out.printf("Unallocated space: %d%n",
+                fs.getUnallocatedSpace());
+        System.out.printf("Usable space: %d%n",
+                fs.getUsableSpace());
+        System.out.printf("Read only: %b%n", fs.isReadOnly());
+        System.out.printf("Name: %s%n", fs.name());
+        System.out.printf("Type: %s%n%n", fs.type());
+    }
+}
+```
+
+```
+Total space: 144970526720
+Unallocated space: 137414221824
+Usable space: 137414221824
+Read only: false
+Name: 文档
+Type: NTFS
+
+```
+
+使用 FileSystem’s Iterable getFileStores() 得到所有file store。
+
+***Listing 12-8. Iterating Over the Default File System’s File Stores*** 
+
+```java
+import java.nio.file.FileStore;
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-28 17:51
+ */
+public class FileStoresDemo {
+    public static void main(String[] args) {
+        FileSystem fsDefault = FileSystems.getDefault();
+        for (FileStore fileStore : fsDefault.getFileStores()) {
+            System.out.printf("Filestore: %s%n", fileStore);
+        }
+    }
+}
+```
+
+```
+Filestore: (C:)
+Filestore: 软件 (D:)
+Filestore: 文档 (E:)
+Filestore: work (F:)
+```
+
 ##### Managing Attributes 
+
+File关联很多属性，比如size, last modification time, hidden, permissions, and owner 。 NIO.2 通过 java.nio.file.attribute 包的types和 Files 类的属性方法支持属性。
+
+Attributes are grouped into views,  每个view对应一个特定文件系统实现。一些views提供readAttributes() 让你读大量属性。调用Files’s getAttribute() and setAttribute() 获取设置属性。
+
+Views 由来自AttributeView 的接口描述， name() 方法返回view name。该接口被子类型FileAttributeView继承，它是和files关联的属性的view。FileAttributeView 没有方法。
+
+FileAttributeView 被以下类继承：
+
+- BasicFileAttributeView:  提供对大多数文件系统通用的文件基础属性集的view。
+- FileOwnerAttributeView: 提供支持 reading or updating a file owner 。
+- UserDefinedFileAttributeView: 提供用户定义的属性的view（也叫拓展属性）
+
+BasicFileAttributeView 被以下接口继承：
+
+- DosFileAttributeView: Provides a view of the legacy MS-DOS/PC-DOS file attributes 
+- PosixFileAttributeView:  Provides a view of the file attributes commonly associated with files on file systems used by operating systems that implement the Portable Operating System Interface (POSIX) family of standards. 
+
+FileOwnerAttributeView 被以下接口继承：
+
+- AclFileAttributeView: Provides support for reading or updating a file’s ACL or file owner attributes. 
+- PosixFileAttributeView 
+
+
+
+
 
 ##### Managing Files and Directories 
 
