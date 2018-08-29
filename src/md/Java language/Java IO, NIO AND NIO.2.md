@@ -5506,6 +5506,139 @@ FileOwnerAttributeView 被以下接口继承：
 - AclFileAttributeView: Provides support for reading or updating a file’s ACL or file owner attributes. 
 - PosixFileAttributeView 
 
+PosixFileAttributeView有2个直接的父接口；它是个专门的basic file attribute view 和owner attribute view 。Figure 12-2 clarifies this relationship along with other relationships among the view hierarchy’s interfaces. 
+
+![1535531754507](https://github.com/konekos/notes/blob/master/src/pic/1535531754507.png?raw=true)
+
+###### Determining View Support 
+
+开始用viw前，确保是否支持。调用 FileSystem’s Set supportedFileAttributeViews() 方法。返回FileSystem 支持的view set strings。
+
+Listing 12-9 presents the source code to an application that outputs the names of views supported by the default FileSystem. 
+
+***Listing 12-9. Outputting the Names of Default File System-Supported File Attribute Views*** 
+
+```java
+import java.nio.file.FileSystem;
+import java.nio.file.FileSystems;
+import java.util.Set;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-29 16:47
+ */
+public class AttributeViewDemo {
+    public static void main(String[] args) {
+        FileSystem fsDefault = FileSystems.getDefault();
+        Set<String> set = fsDefault.supportedFileAttributeViews();
+        System.out.println(set);
+    }
+}
+
+```
+
+```
+[owner, dos, acl, basic, user]
+```
+
+**注意**：所有FileSystems 支持 basic file attribute view 。
+
+你也可以用Files’s  V getFileAttributeView(Path path, Class type, LinkOption... options) 来做。***Listing 12-10 presents an application that uses this method in a utility method context to determine view support.*** 
+
+```java
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.attribute.AclFileAttributeView;
+import java.nio.file.attribute.BasicFileAttributeView;
+import java.nio.file.attribute.FileAttributeView;
+import java.nio.file.attribute.PosixFileAttributeView;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-29 16:47
+ */
+public class AttributeViewDemo1 {
+    public static void main(String[] args) {
+        System.out.printf("Supports basic: %b%n",
+                isSupported(BasicFileAttributeView.class));
+        System.out.printf("Supports posix: %b%n",
+                isSupported(PosixFileAttributeView.class));
+        System.out.printf("Supports acl: %b%n",
+                isSupported(AclFileAttributeView.class));
+    }
+
+    static boolean isSupported(Class<? extends FileAttributeView> clazz)
+    {
+        return Files.getFileAttributeView(Paths.get("."), clazz) != null;
+    }
+}
+```
+
+```
+Supports basic: true
+Supports posix: false
+Supports acl: true
+
+```
+
+FileStore’s supportsFileAttributeView() :
+
+- boolean supportsFileAttributeView(Class type) 
+- boolean supportsFileAttributeView(String name) 
+
+```java
+System.out.printf("supports basic file attribute view: %b%n",
+ fileStore.supportsFileAttributeView(BasicFileAttributeView.class));
+```
+
+```java
+System.out.printf("supports basic file attribute view: %b%n",
+ fileStore.supportsFileAttributeView("basic"));
+```
+
+###### Exploring the Basic View 
+
+BasicFileAttributeView接口支持几个基本属性。 The following list identifies each attribute in terms of its string name and type: 
+
+- creationTime (FileTime) 
+- fileKey (Object) 
+- isDirectory (Boolean) 
+- isOther (Boolean) 
+- isRegularFile (Boolean) 
+- isSymbolicLink (Boolean) 
+- lastAccessTime (FileTime) 
+- lastModifiedTime (FileTime) 
+- size (Long) 
+
+creationTime, lastAccessTime, and lastModifiedTime 为java.nio.file.attribute.FileTime 类型，一个不可变类代表了file’s timestamp 。fileKey 是Object 其余为Boolean Long。
+
+BasicFileAttributeView declares the following methods: 
+
+- BasicFileAttributes readAttributes(): Read the basic file attributes as a bulk operation. 
+- void setTimes(FileTime lastModifiedTime, FileTime lastAccessTime, FileTime creationTime): Update any or all of the file’s lastModifiedTime, lastAccessTime, and creationTime attributes. 
+
+These methods throw IOException when an I/O error occurs. 
+
+readAttributes()  返回java.nio.file.attribute.BasicFileAttributes对象提供type-safe 方法读取属性值：
+
+- FileTime creationTime() 
+- Object fileKey() 
+- boolean isDirectory() 
+- boolean isOther() 
+- boolean isRegularFile() 
+- boolean isSymbolicLink() 
+- FileTime lastAccessTime() 
+- FileTime lastModifiedTime() 
+- long size() 
+
+**注意**：在一些file systems ，使用标识符或组合的标识符来唯一地标识一个文件是可能的。这样的标识符叫 file keys 。File keys 对一些操作很重要，比如在支持 symbolic links 和支持file在多个文件夹作为entry的 文件系统file tree walks 。例如，在Unix-based file systems ，device ID and information node (inode) 被普遍使用。
+
+**Reading Basic File Attribute Values in Bulk** 
+
+Listing 12-11 presents the source code to an application that shows how to read a file’s basic file attributes in bulk. 
+
+***Listing 12-11. Reading Basic File Attributes in Bulk*** 
+
 
 
 
