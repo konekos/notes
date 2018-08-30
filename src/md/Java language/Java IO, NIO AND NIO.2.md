@@ -5639,6 +5639,175 @@ Listing 12-11 presents the source code to an application that shows how to read 
 
 ***Listing 12-11. Reading Basic File Attributes in Bulk*** 
 
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-30 10:35
+ */
+public class BFAVDemo {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\BFAVDemo.java");
+        BasicFileAttributes bfa;
+        bfa = Files.readAttributes(path, BasicFileAttributes.class);
+        System.out.printf("Creation time: %s%n", bfa.creationTime());
+        System.out.printf("File key: %s%n", bfa.fileKey());
+        System.out.printf("Is directory: %b%n", bfa.isDirectory());
+        System.out.printf("Is other: %b%n", bfa.isOther());
+        System.out.printf("Is regular file: %b%n", bfa.isRegularFile());
+        System.out.printf("Is symbolic link: %b%n", bfa.isSymbolicLink());
+        System.out.printf("Last access time: %s%n", bfa.lastAccessTime());
+        System.out.printf("Last modified time: %s%n", bfa.lastModifiedTime());
+        System.out.printf("Size: %d%n", bfa.size());
+    }
+}
+```
+
+通过Files’s  A readAttributes(Path path, Class type, LinkOption... options) 方法获取属性。
+
+**Getting and Setting Single Basic File Attribute Values** 
+
+Files声明 getAttribute() and setAttribute() 方法来获取设置单个属性:
+
+- Object getAttribute(Path path, String attribute, LinkOption... options) 
+- Path setAttribute(Path path, String attribute, Object value, LinkOption... options) 
+
+ LinkOption... options 对于指定symbolic link file  LinkOption.NOFOLLOW_LINKS 。如果你想要最终目标的属性忽略这个参数。
+
+属性遵循下面语法：
+
+```[view-name:]attribute-name ```
+
+view-name默认是basic，attribute-name 是属性名。
+
+Listing 12-12 presents the source code to an application that shows how to get and set single basic file attribute values.
+
+***Listing 12-12. Getting and Setting Single Basic File Attribute Values*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.FileTime;
+import java.time.Instant;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-30 10:49
+ */
+public class BFAVDemo1 {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\BFAVDemo1.java");
+
+        System.out.printf("Creation time: %s%n",
+                Files.getAttribute(path, "creationTime"));
+        System.out.printf("File key: %s%n",
+                Files.getAttribute(path, "fileKey"));
+        System.out.printf("Is directory: %b%n",
+                Files.getAttribute(path, "isDirectory"));
+        System.out.printf("Is other: %b%n",
+                Files.getAttribute(path, "isOther"));
+        System.out.printf("Is regular file: %b%n",
+                Files.getAttribute(path, "isRegularFile"));
+        System.out.printf("Is symbolic link: %b%n",
+                Files.getAttribute(path, "isSymbolicLink"));
+        System.out.printf("Last access time: %s%n",
+                Files.getAttribute(path, "lastAccessTime"));
+        System.out.printf("Last modified time: %s%n",
+                Files.getAttribute(path, "lastModifiedTime"));
+        System.out.printf("Size: %d%n", Files.getAttribute(path, "size"));
+
+        Files.setAttribute(path, "lastModifiedTime",
+                FileTime.from(Instant.now().plusSeconds(60)));
+        System.out.printf("Last modified time: %s%n",
+                Files.getAttribute(path, "lastModifiedTime"));
+    }
+}
+```
+
+```
+Creation time: 2018-08-30T02:49:48.108115Z
+File key: null
+Is directory: false
+Is other: false
+Is regular file: true
+Is symbolic link: false
+Last access time: 2018-08-30T02:52:07.971115Z
+Last modified time: 2018-08-30T02:53:09.08Z
+Size: 1709
+Last modified time: 2018-08-30T06:54:49.655Z
+```
+
+**Tip** Use BasicFileAttributeView’s setTimes() method to set the creation time, last access time, and last modified time in one method call. 
+
+Files declares several convenience methods for accessing specific basic file attributes: 
+
+- FileTime getLastModifiedTime(Path path, LinkOption... options) 
+- boolean isRegularFile(Path path, LinkOption... options) 
+- boolean isSymbolicLink(Path path) 
+- Path setLastModifiedTime(Path path, FileTime time) 
+- long size(Path path) 
+
+###### Exploring the DOS View 
+
+DosFileAttributeView 接口继承BasicFileAttributeView 和支持以下4个MS-DOS/PC-DOS file attributes ：
+
+- archive (Boolean) 
+- hidden (Boolean) 
+- readonly (Boolean) 
+- system (Boolean) 
+
+DosFileAttributeView 声明以下方法：
+
+- DosFileAttributes readAttributes():  读DOS file attributes 。bulk operation 
+- void setArchive(boolean value): Update the value of the archive attribute. 
+- void setHidden(boolean value): Update the value of the hidden attribute. 
+- void setReadOnly(boolean value): Update the value of the readonly attribute. 
+- void setSystem(boolean value): Update the value of the system attribute. 
+
+readAttributes() 返回java.nio.file.attribute.DosFileAttributes 对象提供type-safe methods 读取属性值：
+
+- boolean isArchive() 
+- boolean isHidden() 
+- boolean isReadOnly() 
+- boolean isSystem() 
+
+**Reading DOS File Attribute Values in Bulk** 
+
+Listing 12-13 presents the source code to an application that shows how to read a file’s DOS file attributes in bulk.
+
+***Listing 12-13. Reading DOS File Attributes in Bulk*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.DosFileAttributes;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-30 17:19
+ */
+public class DFAVDemo {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\DFAVDemo.java");
+        DosFileAttributes dfa;
+        dfa = Files.readAttributes(path, DosFileAttributes.class);
+        System.out.printf("Is archive: %b%n", dfa.isArchive());
+        System.out.printf("Is hidden: %b%n", dfa.isHidden());
+        System.out.printf("Is readonly: %b%n", dfa.isReadOnly());
+        System.out.printf("Is system: %b%n", dfa.isSystem());
+    }
+}
+```
+
 
 
 
