@@ -5808,11 +5808,561 @@ public class DFAVDemo {
 }
 ```
 
+```
+Is archive: true
+Is hidden: false
+Is readonly: false
+Is system: false
+```
+
+**Getting and Setting Single DOS File Attribute Values** 
+
+Listing 12-14 presents the source code to an application that shows how to get and set single DOS file attribute values. 
+
+***Listing 12-14. Getting and Setting Single DOS File Attribute Values*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-30 17:19
+ */
+public class DFAVDemo1 {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\DFAVDemo1.java");
+        System.out.printf("Is archive: %b%n",
+                Files.getAttribute(path, "dos:archive"));
+        System.out.printf("Is hidden: %b%n",
+                Files.getAttribute(path, "dos:hidden"));
+        System.out.printf("Is readonly: %b%n",
+                Files.getAttribute(path, "dos:readonly"));
+        System.out.printf("Is system: %b%n",
+                Files.getAttribute(path, "dos:system"));
+
+        Files.setAttribute(path, "dos:system", true);
+        System.out.printf("Is system: %s%n",
+                Files.getAttribute(path, "dos:system"));
+    }
+}
+```
+
+```
+Is archive: true
+Is hidden: false
+Is readonly: false
+Is system: false
+Is system: true
+```
+
+###### Exploring the POSIX View 
+
+PosixFileAttributeView 接口继承BasicFileAttributeView 支持POSIX group owner and nine access permissions attributes: 
+
+- group (GroupPrincipal) 
+- permissions (Set`<PosixFilePermission>`)
+
+PosixFileAttributeView 声明以下方法：
+
+- PosixFileAttributes readAttributes(): Read the POSIX file attributes as a bulk operation. 
+- void setGroup(GroupPrincipal group): Update the file group-owner. 
+- void setPermissions(Set perms): Update the file permissions. 
+
+java.nio.file.attribute.PosixFilePermission 为枚举，包含GROUP_EXECUTE, GROUP_READ, GROUP_WRITE, OTHERS_EXECUTE, OTHERS_READ, OTHERS_WRITE, OWNER_EXECUTE, OWNER_READ, and OWNER_WRITE 常量。
+
+readAttributes() 返回java.nio.file.attribute.PosixFileAttributes 对象提供type-safe methods for reading attribute values: 
+
+- GroupPrincipal group() 
+- UserPrincipal owner() 
+- Set permissions() 
+
+空接口java.nio.file.attribute.UserPrincipal 代表an identity for determining access rights to objects in a file system and extends java.security.Principal. The empty java.nio.file.attribute. GroupPrincipal interface represents a group identity and extends UserPrincipal. 
+
+**Reading POSIX File Attribute Values in Bulk** 
+
+Listing 12-15 presents the source code to an application that shows how to read a file’s POSIX file attributes in bulk. 
+
+***Listing 12-15. Reading POSIX File Attributes in Bulk*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFileAttributes;
+import java.nio.file.attribute.PosixFilePermission;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-31 14:03
+ */
+public class PFAVDemo {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\PFAVDemo.java");
+        PosixFileAttributes pfa;
+        pfa = Files.readAttributes(path, PosixFileAttributes.class);
+        System.out.printf("Group: %s%n", pfa.group());
+        for (PosixFilePermission perm : pfa.permissions()) {
+            System.out.printf("Permission: %s%n", perm);
+        }
+    }
+}
+```
+
+**Getting and Setting Single POSIX File Attribute Values** 
+
+Listing 12-16 presents the source code to an application that shows how to get and set single POSIX file attribute values. 
+
+*Listing 12-16. Getting and Setting Single POSIX File Attribute Values* 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.GroupPrincipal;
+import java.nio.file.attribute.PosixFilePermission;
+import java.util.Set;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-31 14:03
+ */
+public class PFAVDemo1 {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\PFAVDemo1.java");
+        System.out.printf("Group: %b%n",
+                Files.getAttribute(path, "posix:group"));
+        @SuppressWarnings("unchecked")
+        Set<PosixFilePermission> perms =
+                (Set<PosixFilePermission>)
+                        Files.getAttribute(path, "posix: permissions");
+        for (PosixFilePermission perm: perms)
+            System.out.printf("Permission: %s%n", perm);
 
 
+        GroupPrincipal gp = path.getFileSystem().
+                getUserPrincipalLookupService().
+                lookupPrincipalByGroupName(args[1]);
+        Files.setAttribute(path, "posix:group", gp);
+        System.out.printf("Group: %b%n",
+                Files.getAttribute(path, "posix:group"));
+    }
+}
+```
 
+To change the group attribute, you need to obtain a new GroupPrincipal object that corresponds to the specified group name command-line argument. This task is accomplished by following these steps: 
+
+- Calling Path’s FileSystem getFileSystem() method to return the FileSystem that created the Path object. 
+- Calling FileSystem’s UserPrincipalLookupService getUserPrincipalLookupService() method to return the java.nio.file.attribute.UserPrincipalLookupService object for obtaining UserPrincipals and GroupPrincipals. 
+- Calling UserPrincipalLookupService’s GroupPrincipal lookupPrincipalByGroupName(String group) method to return the desired GroupPrincipal object. 
+
+Files类声明了便捷方法来getting and setting the POSIX permissions attribute: 
+
+- Set getPosixFilePermissions (Path path, LinkOption... options) 
+- Path setPosixFilePermissions(Path path, Set perms) 
+
+例如：
+
+```java
+Set<PosixFilePermission> perms =
+ (Set<PosixFilePermission>)
+ Files.getAttribute(path, "posix: permissions");
+ 
+ //代替
+ Set<PosixFilePermission> perms = Files.getPosixFilePermissions(path);
+```
+
+###### Exploring the File Owner View 
+
+很多文件系统支持file ownership 的概念。NIO.2通过FileOwnerAttributeView 接口支持，支持以下属性：
+
+- owner (UserPrincipal) 
+
+FileOwnerAttributeView 声明以下方法访问属性：
+
+- UserPrincipal getOwner(): Read the file owner. 
+- void setOwner(UserPrincipal owner): Update the file owner 
+
+Files的便捷方法：
+
+- UserPrincipal getOwner(Path path, LinkOption... options) 
+- Path setOwner(Path path, UserPrincipal owner) 
+
+**Note** You can also access the file owner attribute via Files.getAttribute() or Files.setAttribute(). You will need to specify owner:owner for the view prefix and attribute name 
+
+Listing 12-17 presents the source code to an application that demonstrates getOwner() and setOwner(). 
+
+***Listing 12-17. Getting and Setting File Ownership*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.UserPrincipal;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-31 15:04
+ */
+public class FOAVDemo {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\FOAVDemo.java");
+        System.out.printf("Owner: %s%n", Files.getOwner(path));
+        UserPrincipal up = path.getFileSystem().
+                getUserPrincipalLookupService().
+                lookupPrincipalByName("Judy");
+        System.out.println(up);
+        Files.setOwner(path, up);
+        System.out.printf("Owner: %s%n", Files.getOwner(path));
+    }
+}
+```
+
+```
+Owner: BUILTIN\Administrators (Alias)
+Judy-PC\Judy (User)
+Owner: Judy-PC\Judy (User)
+```
+
+**Note** POSIXFileAttributeView extends FileOwnerAttributeView, inheriting the owner attribute. Files on a POSIX file system have a file owner in addition to a group owner and access permissions. 
+
+###### Exploring the ACL View 
+
+AclFileAttributeView 继承FileOwnerAttributeView 支持以下属性：
+
+- acl (List) 
+
+AclFileAttributeView 声明以下方法访问属性：
+
+- List getAcl(): Read the ACL into a java.util.List of java.nio.file.attribute.AclEntrys. 
+- void setAcl(List acl): Update (replace) the ACL. 
+
+AclEntry 类describes an entry in an ACL. It has four components: 
+
+- type ，确定条目是否授予或拒绝访问 。调用AclEntryType type() 获得。java.nio.file.attribute.AclEntryType 枚举类定义了ALARM (generate an alarm, in a system-dependent way, for the access specified in the permissions component of the ACL entry), ALLOW (explicitly grant access to a regular file or directory), AUDIT (log, in a systemdependent way, the access specified in the permissions component of the ACL entry), and DENY (explicitly deny access to a regular file or directory entry)  4个常量。
+- principal, 有时叫 who 组件，是一个对应的UserPrincipal  调用UserPrincipal principal() 方法获得。
+- permissions is a set of permissions.  调用Set permissions() 获得。 java.nio.file.attribute.AclEntryPermission 枚举类定义APPEND_DATA (permission to append data to a file), DELETE (permission to delete the file), DELETE_CHILD (permission to delete a file in a directory), EXECUTE (permission to execute a regular file), READ_ACL (permission to read the ACL attribute), READ_ATTRIBUTES (the ability to read nonACL file attributes), READ_DATA (permission to read the file’s data), READ_NAMED_ATTRS (permission to read the file’s named attributes), SYNCHRONIZE (permission to access the file locally at the server with synchronous reads and writes), WRITE_ ACL (permission to write the ACL attribute), WRITE_ ATTRIBUTES (the ability to write nonACL file attributes), WRITE_DATA (permission to modify the file’s data), WRITE_NAMED_ATTRS (permission to write the file’s named attributes), and WRITE_OWNER (permission to change the owner) 常量。
+- flags is a set of flags that indicate how entries are inherited and propagated. 调用Set`<AclEntryFlag>`flags() 获得。java.nio. file.attribute.AclEntryFlag 枚举类定义 DIRECTORY_ INHERIT (can be placed on a directory and indicates that the ACL entry should be added to each new directory created), FILE_INHERIT (can be placed on a directory and indicates that the ACL entry should be added to each new nondirectory file created), INHERIT_ONLY (can be placed on a directory but does not apply to the directory, only to newly-created files/directories as specified by the FILE_INHERIT and DIRECTORY_INHERIT flags), and NO_PROPAGATE_INHERIT (can be placed on a directory to indicate that the ACL entry should not be placed on the newly-created directory, which is inheritable by subdirectories of the created directory) 
+
+Listing 12-18 presents the source code to an application that demonstrates reading the acl and inherited owner attributes. 
+
+***Listing 12-18. Reading and Outputting a File’s Owner and ACL Information*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.AclEntry;
+import java.util.List;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-31 16:46
+ */
+public class ACLAVDemo {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\ManageAttribute\\ACLAVDemo.java");
+        System.out.printf("Owner: %s%n%n",
+                Files.getAttribute(path, "acl:owner"));
+        @SuppressWarnings("unchecked")
+        List<AclEntry> aclentries =
+                (List<AclEntry>) Files.getAttribute(path, "acl:acl");
+        for (AclEntry aclentry: aclentries)
+            System.out.printf("%s%n%n", aclentry);
+    }
+}
+```
+
+###### Exploring the User-Defined View 
+
+使用UserDefinedFileAttributeView 接口：
+
+- void delete(String name): Delete a user-defined attribute. 
+- List list(): Return a list of user-defined attribute names. 
+- int read(String name, ByteBuffer dst): Read the value of a user-defined attribute into a buffer. 
+- int size(String name): Return the size of the value of a user-defined attribute. 
+- int write(String name, ByteBuffer src): Write the value of a user-defined attribute from a buffer 
+
+使用 FileStore’s supportsFileAttributeView() 查看是否支持：
+
+```java
+FileStore fs = Files.getFileStore(path);
+if (!fs.supportsFileAttributeView(UserDefinedFileAttributeView.class))
+ System.out.println("User-defined attributes are supported.");
+else
+ System.out.println("User-defined attributes are not supported.");
+```
+
+Listing 12-19 presents the source code to an application that demonstrates a user-defined file.description attribute for associating a description with a file. 
+
+***Listing 12-19. Associating a Description with a File*** 
+
+```javascript
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.charset.Charset;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.attribute.UserDefinedFileAttributeView;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-31 17:10
+ */
+public class UDAVDemo {
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\ManageAttribute\\UDAVDemo.java");
+        UserDefinedFileAttributeView udfav =
+                Files.getFileAttributeView(path,
+                        UserDefinedFileAttributeView.class);
+        switch (args[0].charAt(0))
+        {
+            case 'W':
+            case 'w': udfav.write("file.description",
+                    Charset.defaultCharset().encode("sample"));
+                break;
+            case 'L':
+            case 'l': for (String name: udfav.list())
+                System.out.println(name);
+                break;
+            case 'R':
+            case 'r': int size = udfav.size("file.description");
+                ByteBuffer buf = ByteBuffer.allocateDirect(size);
+                udfav.read("file.description", buf);
+                buf.flip();
+                System.out.println(Charset.defaultCharset().decode(buf));
+                break;
+            case 'D':
+            case 'd': udfav.delete("file.description");
+        }
+    }
+}
+```
+
+```
+Owner: BUILTIN\Administrators (Alias)
+
+BUILTIN\Administrators:READ_DATA/WRITE_DATA/APPEND_DATA/READ_NAMED_ATTRS/WRITE_NAMED_ATTRS/EXECUTE/DELETE_CHILD/READ_ATTRIBUTES/WRITE_ATTRIBUTES/DELETE/READ_ACL/WRITE_ACL/WRITE_OWNER/SYNCHRONIZE:ALLOW
+
+NT AUTHORITY\SYSTEM:READ_DATA/WRITE_DATA/APPEND_DATA/READ_NAMED_ATTRS/WRITE_NAMED_ATTRS/EXECUTE/DELETE_CHILD/READ_ATTRIBUTES/WRITE_ATTRIBUTES/DELETE/READ_ACL/WRITE_ACL/WRITE_OWNER/SYNCHRONIZE:ALLOW
+
+NT AUTHORITY\Authenticated Users:READ_DATA/WRITE_DATA/APPEND_DATA/READ_NAMED_ATTRS/WRITE_NAMED_ATTRS/EXECUTE/READ_ATTRIBUTES/WRITE_ATTRIBUTES/DELETE/READ_ACL/SYNCHRONIZE:ALLOW
+
+BUILTIN\Users:READ_DATA/READ_NAMED_ATTRS/EXECUTE/READ_ATTRIBUTES/READ_ACL/SYNCHRONIZE:ALLOW
+```
+
+###### Exploring the File Store View 
+
+AttributeView 也被java.nio.file.attribute. FileStoreAttributeView继承，是一个空的接口。file store 有totalSpace, unallocatedSpace, and usableSpace 属性。调用FileStore’s getAttribute() 获取属性。
+
+getAttribute() 方法也可以带指定属性的string参数view-name:attribute-name 。对于WindowsFileStore 子类，对于totalSpace、 unallocatedSpace 和usableSpace 不需要带view name：
+
+```java
+System.out.printf("total space: %d%n",
+ fileStore.getAttribute("totalSpace"));
+System.out.printf("unallocated space: %d%n",
+ fileStore.getAttribute("unallocatedSpace"));
+System.out.printf("usable space: %d%n",
+ fileStore.getAttribute("usableSpace"));
+```
+
+**Note** Instead of accessing totalSpace, unallocatedSpace, and usableSpace via getAttribute(), it’s better to use FileStore’s type-safe getTotalSpace(), getUnallocatedSpace(), and getUsableSpace() methods, which I demonstrated earlier in this chapter. 
+
+ In contrast, you need to specify volume as the view-name when accessing the Windows-specific vsn, isRemovable, and isCdrom attributes: 
+
+```
+System.out.printf("volume serial number: %b%n",
+ fileStore.getAttribute("volume:vsn"));
+System.out.printf("is removable: %b%n",
+ fileStore.getAttribute("volume:isRemovable"));
+System.out.printf("is CD-ROM: %b%n",
+ fileStore.getAttribute("volume:isCdrom"));
+```
 
 ##### Managing Files and Directories 
+
+Paths 让你定位文件。..
+
+###### Checking Paths 
+
+Files 声明2个方法表达文件存不存在：
+
+- boolean exists(Path path, LinkOption... options):  检查path代表的文件是否存在。 By default, symbolic links are followed, but if you pass LinkOption.NOFOLLOW_LINKS to options, symbolic links are not followed.  
+- boolean notExists(Path path, LinkOption... options): 
+
+**注意**：!exists(path) 是不等于notExists(path)的。因为 !exists() 不是原子性的（(executed as a single operation ），notExists() 是原子性的。当exists() 和notExists() 返回false，文件的存在不能被证实。
+
+Files 类也声明了几个is开头的方法检查额外条件：
+
+- boolean isDirectory(Path path, LinkOption... options): 检查path 代表文件夹。 Specify LinkOption.NOFOLLOW_LINKS when you don’t want this method to follow symbolic links 
+- boolean isExecutable(Path path):  检查是否可执行。
+- boolean isHidden(Path path): 检查是不是隐藏文件。准确的hidden定义是依赖于操作系统的。Unix 是句号开头，Windos是不是文件夹和 DOS hidden attribute 。
+- boolean isReadable(Path path):  检查是否可读，
+- boolean isRegularFile(Path path, LinkOption... options): 检查是否是常规文件。
+- boolean isSameFile(Path path1, Path path2): 检查是不是同一个文件。如果是两个 file system providers ，返回false。
+- boolean isWritable(Path path): 检查是否可写。
+
+isExecutable(), isReadable(), and isWritable() 检查文件是否存在，JVM有读写执行权限。根据实现，方法可能需要读取 file permissions, ACLs, or other file attributes to check the effective access to the file。因此，对于其他操作系统方法可能不是原子性的。
+
+exists(), notExists(), isExecutable(), isReadable(), and isWritable() 的返回值是立即过时的。这个race condition 被叫做time-of-check-to-time-of-use (TOCTTOU) 。Check out https:// en.wikipedia.org/wiki/Time_of_check_to_time_of_use for more information. 
+
+Listing 12-20 presents the source code to an application that demonstrates these path-checking methods. 
+
+***Listing 12-20. Checking Paths for Various Conditions*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-31 17:52
+ */
+public class FilesAndDirectoriesDemo {
+    public static void main(String[] args) {
+
+        Path path1 = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\FilesAndDirectoriesDemo.java");
+        System.out.printf("Path1: %s%n", path1);
+        System.out.printf("Exists: %b%n", Files.exists(path1));
+        System.out.printf("Not exists: %b%n", Files.notExists(path1));
+        System.out.printf("Is directory: %b%n", Files.isDirectory(path1));
+        System.out.printf("Is executable: %b%n", Files.isExecutable(path1));
+
+        try
+        {
+            System.out.printf("Hidden: %b%n", Files.isHidden(path1));
+        }
+        catch (IOException ioe)
+        {
+            ioe.printStackTrace();
+        }
+
+        System.out.printf("Is readable: %b%n", Files.isReadable(path1));
+        System.out.printf("Is regular file: %b%n",
+                Files.isRegularFile(path1));
+        System.out.printf("Is writable: %b%n",
+                Files.isWritable(path1));
+
+        try {
+            System.out.println("Is Same" + Files.isSameFile(path1, Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\FileStoreDemo.java")));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+```
+Path1: E:\SpringSourceCode\src\main\java\com\jasu\nio\_12_NIO2\_02_Files\FilesAndDirectoriesDemo.java
+Exists: true
+Not exists: false
+Is directory: false
+Is executable: true
+Hidden: false
+Is readable: true
+Is regular file: true
+Is writable: true
+Is Samefalse
+```
+
+###### Creating Files 
+
+通过Files的Path createFile(Path path, FileAttribute... attrs) 创建文件。需要指定path 和属性。
+
+attrs 参数指定了属性对象列表。属性实现了java.nio.file.attribute.FileAttribute 接口。
+
+createFile() 成功返回文件的Path。可抛出UnsupportedOperationException  java.nio.file. FileAlreadyExistsException 。IOException 。
+
+**注意**：FileAlreadyExistsException 是一个optional specific exception 。底层操作系统检测特定error导致这个异常。如果error没被检测，抛出IOException 。
+
+Listing 12-21 presents the source code to an application that demonstrates createFile() without file attributes. 
+
+***Listing 12-21. Creating an Empty File*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-08-31 17:52
+ */
+public class FilesAndDirectoriesDemo {
+    public static void main(String[] args) throws IOException {
+
+        createFiles();
+    }
+
+    static void pathsAndDirectories() {
+        Path path1 = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\FilesAndDirectoriesDemo.java");
+        System.out.printf("Path1: %s%n", path1);
+        System.out.printf("Exists: %b%n", Files.exists(path1));
+        System.out.printf("Not exists: %b%n", Files.notExists(path1));
+        System.out.printf("Is directory: %b%n", Files.isDirectory(path1));
+        System.out.printf("Is executable: %b%n", Files.isExecutable(path1));
+
+        try {
+            System.out.printf("Hidden: %b%n", Files.isHidden(path1));
+        } catch (IOException ioe) {
+            ioe.printStackTrace();
+        }
+
+        System.out.printf("Is readable: %b%n", Files.isReadable(path1));
+        System.out.printf("Is regular file: %b%n",
+                Files.isRegularFile(path1));
+        System.out.printf("Is writable: %b%n",
+                Files.isWritable(path1));
+
+        try {
+            System.out.println("Is Same" + Files.isSameFile(path1, Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\FileStoreDemo.java")));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    static void createFiles() throws IOException {
+        Files.createFile(Paths.get("C:/a.jpg"));
+    }
+}
+```
+
+###### Creating and Deleting Temporary Files 
+
+应用经常需要创建和使用临时常规文件。例如，内存密集型视频编辑应用。以及外部排序的应用。
+
+你可以用2种方法创建临时文件：
+
+- Path createTempFile(Path dir, String prefix, String suffix, FileAttribute... attrs) 
+- Path createTempFile(String prefix, String suffix, FileAttribute... attrs) 
+
+第一个方法创建在dir 文件夹，第二个创建在默认的临时文件夹（ java.io.tmpdir ）。当suffix 是null，为.tmp。
+
+成功返回Path。
+
+Listing 12-22 presents the source code to an application that demonstrates the first createTempFile() method (without file attributes). 
+
+***Listing 12-22. Creating an Empty Temporary File*** 
+
+```java
+
+```
+
+
+
+
+
+
 
 ##### Managing Symbolic and Hard Links 
 
