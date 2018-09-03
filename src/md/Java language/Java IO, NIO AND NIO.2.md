@@ -6303,34 +6303,6 @@ public class FilesAndDirectoriesDemo {
 
         createFiles();
     }
-
-    static void pathsAndDirectories() {
-        Path path1 = Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\FilesAndDirectoriesDemo.java");
-        System.out.printf("Path1: %s%n", path1);
-        System.out.printf("Exists: %b%n", Files.exists(path1));
-        System.out.printf("Not exists: %b%n", Files.notExists(path1));
-        System.out.printf("Is directory: %b%n", Files.isDirectory(path1));
-        System.out.printf("Is executable: %b%n", Files.isExecutable(path1));
-
-        try {
-            System.out.printf("Hidden: %b%n", Files.isHidden(path1));
-        } catch (IOException ioe) {
-            ioe.printStackTrace();
-        }
-
-        System.out.printf("Is readable: %b%n", Files.isReadable(path1));
-        System.out.printf("Is regular file: %b%n",
-                Files.isRegularFile(path1));
-        System.out.printf("Is writable: %b%n",
-                Files.isWritable(path1));
-
-        try {
-            System.out.println("Is Same" + Files.isSameFile(path1, Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\FileStoreDemo.java")));
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
     static void createFiles() throws IOException {
         Files.createFile(Paths.get("C:/a.jpg"));
     }
@@ -6355,16 +6327,233 @@ Listing 12-22 presents the source code to an application that demonstrates the f
 ***Listing 12-22. Creating an Empty Temporary File*** 
 
 ```java
+public class FilesAndDirectoriesDemo {
+    public static void main(String[] args) throws IOException {
 
+        System.out.println(System.getProperty("java.io.tmpdir"));
+    }
+    static void createTempFiles() throws IOException {
+        Files.createTempFile("test", null);
+    }
+}
 ```
 
+```
+test6818290517221982513.tmp
+```
 
+Demo运行完临时文件不消失，不用最好删除，3种方式：
+
+- Add a shutdown hook （一种运行时机制，JVM关闭前清楚资源或保存数据），通过java.lang.Runtime 的addShutdownHook(Thread hook) 方法。
+- 转变返回的Path为File，调用deleteOnExit() 
+- 使用Files类的newOutputStream() 方法和 NIO.2’s DELETE_ON_CLOSE  常数。
+
+示例
+
+```java
+static void createTempFiles() throws IOException {
+        Path path = Files.createTempFile("test", null);
+        path.toFile().deleteOnExit();
+    }
+```
+
+###### Reading Files
+
+Files类支持读取常规文件内容，声明下面的方法读取所有字节或文本到内存：
+
+- byte[] readAllBytes(Path path) 
+- List readAllLines(Path path) 
+- List readAllLines(Path path, Charset cs) 
+
+readAllBytes(Path path) 读取文件内容返回字节数组。确保读取完毕后关闭文件。OutOfMemoryError （超过2G）。用于简单的场景，不用于读取大文件。
+
+readAllLines(Path path) ，等同于readAllLines(path, java.nio.charset.StandardCharsets.UTF_8);. 。
+
+readAllLines(Path path, Charset cs) 指定编码。用于简单的操作，不用于读大文件。
+
+Listing 12-24 describes an application that uses readAllLines(Path path) to read all lines from a text file. These lines are subsequently output. 
+
+***Listing 12-24. Dumping a Text File to the Standard Output Stream*** 
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.List;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-03 15:39
+ */
+public class ReadingFilesDemo {
+    public static void main(String[] args) throws IOException {
+        List<String> stringList = Files.readAllLines(Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\ReadingFilesDemo.java"));
+        for (String s : stringList) {
+            System.out.println(s);
+        }
+    }
+}
+```
+
+ If you try to dump a binary file, you will probably discover a java.nio.charset.MalformedInputException message instead. 
+
+前面的方法仅限于将较小的文件读入内存。 对于大文件，Files提供下面的方法：
+
+- BufferedReader newBufferedReader(Path path) 
+- BufferedReader newBufferedReader(Path path, Charset cs) 
+- InputStream newInputStream(Path path, OpenOption... options) 
+
+newBufferedReader(Path path) 等同于 Files.new BufferedReader(path, StandardCharsets.UTF_8) 。
+
+newBufferedReader(Path path, Charset cs) 返回java.io.BufferedReader (with the default buffer size) ，指定编码。
+
+newInputStream(Path path, OpenOption... options) 返回java.io.InputStream ，stream 不会被buffered，不用支持mark()或者reset()。stream 对多线程的访问是安全的。从头开始读。
+
+可以传入java.nio.file.OpenOptions的可变参数列表。这些options配置了如何创建和打开文件。java.nio.file. StandardOpenOption 枚举类实现了这个接口并提供下面的常量：
+
+- APPEND: 如果文件为了写打开，写字节到文件末尾而不是开头
+- CREATE 文件不存在就创建文件
+- CREATE_NEW: 创建新文件，文件存在时失败
+- DELETE_ON_CLOSE: 当file关闭时，最大努力删除文件。
+- DSYNC: 要求每次对文件内容的更新同步到底层储存设备
+- READ: Open the file for read access. 
+- SPARSE: Open a sparse file (https://en.wikipedia.org/ wiki/Sparse_file).  当使用CREATE_NEW，SPARSE提供了一个暗示，新建的文件是sparse。操作系统不支持会忽略。
+- SYNC: 要求文件内容或者metadata的更新同步到底层储存设备。
+- TRUNCATE_EXISTING: Truncate 存在的用WRITE访问打开的文件的长度到0。
+- WRITE: Open the file for write access. 
+
+不是全都适用 newInputStream() ，一些适用 newOutputStream() 。
+
+Listing 12-25 describes an application that demonstrates newBufferedReader(Path path). 
+
+***Listing 12-25. Dumping a Text File to the Standard Output Stream, Revisited*** 
+
+```java
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-03 16:34
+ */
+public class NewBufferedReaderDemo {
+    public static void main(String[] args) throws IOException {
+
+        BufferedReader reader = Files.newBufferedReader(Paths.get("E:\\SpringSourceCode\\src\\main\\java\\com\\jasu\\nio\\_12_NIO2\\_02_Files\\NewBufferedReaderDemo.java"));
+        String line;
+        while ((line = reader.readLine()) != null) {
+            System.out.println(line);
+        }
+    }
+}
+```
+
+###### Writing Files 
+
+Files提供了写字节或文本的方法：
+
+- Path write(Path path, byte[] bytes, OpenOption... options) 
+- Path write(Path path, Iterable lines, Charset cs, OpenOption... options) 
+- Path write(Path path, Iterable lines, OpenOption... options) 
+
+write(Path path, byte[] bytes, OpenOption... options)  写字节到path。如果没传入就是 CREATE, TRUNCATE_EXISTING, and WRITE 。
+
+write(Path path, Iterable lines, Charset cs, OpenOption... options) 写lines到path。系统指定的换行符line.separator 。指定了编码。没传option为 CREATE, TRUNCATE_EXISTING, and WRITE  。
+
+write(Path path, Iterable lines, OpenOption... options) behaves as if you specified Files.write(path, lines, StandardCharsets.UTF_8, options);. 
+
+Listing 12-26 describes an application that reads a web page and saves its HTML text to a file named page.html. 
+
+***Listing 12-26. Saving Web Page HTML to a Text File*** 
+
+```java
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-03 16:50
+ */
+public class NewBufferedWriterDemo {
+    public static void main(String[] args) throws IOException {
+        URL url = new URL("https://www.baidu.com");
+        InputStreamReader inputStreamReader = new InputStreamReader(url.openStream());
+        BufferedReader reader = new BufferedReader(inputStreamReader);
+        List<String> lines = new ArrayList<>();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            lines.add(line);
+        }
+        Files.write(Paths.get("C:/page.html"), lines);
+    }
+}
+```
+
+前面的方法限制于写小数量的内容到文件。对于大量内容，Files提供下面的方法：
+
+- BufferedWriter newBufferedWriter(Path path, Charset cs, OpenOption... options) 
+- BufferedWriter newBufferedWriter(Path path, OpenOption... options) 
+- OutputStream newOutputStream(Path path, OpenOption... options) 
+
+newBufferedWriter(Path path, Charset cs, OpenOption... options)  打开或创建一个文件，返回java.io.BufferedWriter (with the default buffer size) 。指定了编码。默认option为 CREATE, TRUNCATE_EXISTING, and WRITE 。
+
+newBufferedWriter(Path path, OpenOption... options) behaves as if you specified Files.newBufferedWriter(path, StandardCharsets.UTF_8, options); 
+
+newOutputStream(Path path, OpenOption... options) 返回java.io.OutputStream 。stream 不被buffered，写是线程安全的。默认option为 CREATE, TRUNCATE_EXISTING, and WRITE 。
+
+Listing 12-27 describes an application that demonstrates newBufferedWriter(Path path, OpenOption... options). 
+
+***Listing 12-27. Saving Web Page HTML to a Text File, Revisited*** 
+
+```java
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-03 16:50
+ */
+public class NewBufferedWriterDemo {
+    public static void main(String[] args) throws IOException {
+        URL url = new URL("https://www.baidu.com");
+        InputStreamReader inputStreamReader = new InputStreamReader(url.openStream());
+        BufferedReader reader = new BufferedReader(inputStreamReader);
+        BufferedWriter writer = Files.newBufferedWriter(Paths.get("C:/page.html"));
+        List<String> lines = new ArrayList<>();
+        String line;
+        while ((line = reader.readLine()) != null) {
+            writer.write(line, 0, line.length());
+            writer.newLine();
+        }
+        writer.close();
+    }
+}
+```
+
+###### Randomly Accessing Files 
 
 
 
 
 
 ##### Managing Symbolic and Hard Links 
+
+
 
 ##### Walking the File Tree 
 
