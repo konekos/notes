@@ -6547,6 +6547,208 @@ public class NewBufferedWriterDemo {
 
 ###### Randomly Accessing Files 
 
+第三章介绍了java.io.RandomAccessFile 。NIO.2 提供了等价的java.nio.channels.SeekableByteChannel 接口。
+
+SeekableByteChannel 继承java.nio.channels.ByteChannel 接口，描述一个byte channel 维护一个当前position，允许position被改变。Table 12-1 presents its methods. 
+
+***Table 12-1. The Methods That Define a Seekable Byte Channel*** 
+
+| Method                                         | Description                                                  |
+| ---------------------------------------------- | ------------------------------------------------------------ |
+| long position()                                | 返回该channel的position， 从seekable entity的起始位置到当前位置的非负字节计数。 |
+| SeekableByteChannel position(long newPosition) | 设置channel的position到newPosition。设置position超出当前size是合法的，不会改变实体的size。 |
+| int read(ByteBuffer dst)                       | Read a sequence of bytes from this channel into the given buffer. |
+| long size()                                    | Return the current size (in bytes) of the entity to which this channel is connected. |
+| SeekableByteChannel truncate(long size)        | Truncate the entity to which this channel is connected to size. |
+| int write(ByteBuffer src)                      | Write a sequence of bytes to this channel from the given buffer |
+
+JDK 7 重构java.nio.channels.FileChannel 实现了SeekableByteChannel 。SeekableByteChannel 文档建议方法返回的类型实现了SeekableByteChannel ，然后chain在一起。
+
+Files类让你接收SeekableByteChannel ：
+
+- SeekableByteChannel newByteChannel(Path path, OpenOption... options) 
+- SeekableByteChannel newByteChannel(Path path, Set options, FileAttribute... attrs) 
+
+I’ve created an application that demonstrates SeekableByteChannel in a FileChannel context and also in a more generic context. Listing 12-28 presents the application’s source code. 
+
+***Listing 12-28. Demonstrating SeekableByteChannel*** 
+
+```java
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.channels.SeekableByteChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.EnumSet;
+
+import static java.nio.file.StandardOpenOption.*;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-04 11:15
+ */
+public class SeekableByteChannelDemo {
+    final static int REC_LEN = 50;
+    public static void main(String[] args) throws IOException {
+        Path path = Paths.get("emp");
+        FileChannel fc;
+        fc = FileChannel.open(path, CREATE, WRITE, SYNC).position(REC_LEN * 2);
+        ByteBuffer buffer = ByteBuffer.wrap("John Smith".getBytes());
+        fc.write(buffer);
+        buffer.clear();
+        SeekableByteChannel sbc;
+        sbc = Files.newByteChannel(path, EnumSet.of(READ)).position(REC_LEN * 2);
+        sbc.read(buffer);
+        sbc.close();
+        System.out.println(new String(buffer.array()));
+    }
+}
+```
+
+先创建path，然后在文件上open一个channel。
+
+**注意**：NIO.2添加了FileChannel open(Path path, OpenOption...
+options) and FileChannel open(Path path, Set options, FileAttribute... attrs)方法到FileChannel类，你不需要依赖传统i/o方式得到file channel。
+
+open()方法带有CREATE, WRITE, SYNC options。
+
+成功获得 seekable file channel后，main() 在channel调用position()设置读取position，2倍的recode（假设emp是a flat file database，被分隔为records，每个record 长度为REC_LEN）。
+
+调用java.nio.ByteBuffer’s ByteBuffer wrap(byte[] array) 方法包装字节数组，buffer然后写入到channel，然后关闭。emp文件应该在100的位置开始有字节序列。
+
+然后newByteChannel() and SeekableByteChannel。不把FileChannel硬编码在源码，使用SeekableByteChannel更有利。
+
+关闭seekable byte channel后，调用ByteBuffer’s byte[] array()返回字节数组。放入new String。
+
+###### Creating Directories
+
+调用 Files类的Path createDirectory(Path dir, FileAttribute... attrs)方法。当创建文件夹，指定path和属性的可变参数列表。
+
+createDirectory()成功返回path。
+
+Listing 12-29 presents the source code to an application that demonstrates
+createDirectory() without file attributes.
+
+***Listing 12-29. Creating an Empty Directory***
+
+```java
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-04 17:05
+ */
+public class CreateDirectoriesDemo {
+    public static void main(String[] args) throws IOException {
+
+        Files.createDirectory(Paths.get("C:/test"));
+    }
+}
+```
+
+使用 Path createDirectories(Path dir, FileAttribute...attrs)创建层级文件夹。不会抛FileAlreadyExistsException。
+
+FileAttribute是PosixFilePermissions class’s File Attribute> asFileAttribute(Set perms)的返回类型。你可以在POSIX file system上这么做：
+
+```java
+Set<PosixFilePermission> perms =
+ PosixFilePermissions.fromString("rw-------");
+FileAttribute<Set<PosixFilePermission>> fa =
+ PosixFilePermissions.asFileAttribute(perms);
+Files.createDirectory(Paths.get("images"), fa);
+
+```
+
+###### Creating and Deleting Temporary Directories
+
+创建临时文件夹：
+
+-  Path createTempDirectory(Path dir, String prefix, FileAttribute... attrs)
+- Path createTempDirectory(String prefix,FileAttribute... attrs)
+
+第二个创建在系统属性java.io.tmpdir文件夹，成功返回path。
+
+Listing 12-30 presents the source code to an application that demonstrates
+the first createTempDirectory() method (without file attributes).
+
+***Listing 12-30. Creating an Empty Temporary Directory***
+
+```java
+Files.createTempDirectory(Paths.get("C:/test"), "test");
+```
+
+程序执行结束，临时文件夹还在，2种方法删除：
+
+- Add a shutdown hook via the Runtime class’s void addShutdownHook(Thread hook) method.
+- Convert the returned Path object to a File object (via Path’s toFile() method) and invoke File’s void deleteOnExit() method on the File object.
+
+Listing 12-31 expands on Listing 12-30 by using a shutdown hook to
+remove a temporary directory before the JVM shuts down.
+
+***Listing 12-31. Using a Shutdown Hook to Remove a Temporary Directory on JVM Exit***
+
+```java
+Path path = Files.createTempDirectory(Paths.get("C:/test"), "test");
+
+        Runtime.getRuntime().addShutdownHook(new Thread(()->{
+            try {
+                Files.delete(path);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }));
+    }
+```
+
+###### Listing Directory Content
+
+NIO.2提供了`java.nio.file.DirectoryStream<T>`接口来得到文件夹条目。DirectoryStream继承java.lang.Iterable。
+
+DirectoryStream也继承java.io.Closeable，它继承java.lang.AutoCloseable。因此可以用 try-with-resources自动关闭directory stream。
+
+**注意**：当不使用try-with-resources，迭代后调用directory stream的close()方法释放打开文件夹持有的资源。stream当程序结束自动关闭。
+
+DirectoryStream继承了 Iterable’s Iterator iterator()方法。声明了内置的`Filter<T>`接口。
+
+调用Files类的下面方法获取DirectoryStream：
+
+- DirectoryStream newDirectoryStream(Path dir)
+- DirectoryStream newDirectoryStream(Path dir, DirectoryStream.Filter filter)
+- DirectoryStream newDirectoryStream(Path dir, String glob)
+
+Listing 12-32 presents an application that obtains and outputs all entries in
+the specified directory.
+
+***Listing 12-32. Obtaining and Outputting All Entries in a Directory***
+
+```java
+Path path = Paths.get("C:/windows");
+        DirectoryStream<Path> paths = Files.newDirectoryStream(path, p->p.getFileName().toString().endsWith("exe"));
+        for (Path path1 : paths) {
+            System.out.println(path1);
+        }
+```
+
+没有用try-with-resource，因为执行完就结束了。传入了一个filter（lambda）。
+
+newDirectoryStream(Path dir, String glob)，使用 globbing pattern。
+
+```java
+try (DirectoryStream<Path> ps = Files.newDirectoryStream(path, "*.exe")) {
+            for (Path p : ps) {
+                System.out.println(p);
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+```
+
+###### Copying Files
+
 
 
 
