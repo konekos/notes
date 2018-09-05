@@ -6749,15 +6749,191 @@ try (DirectoryStream<Path> ps = Files.newDirectoryStream(path, "*.exe")) {
 
 ###### Copying Files
 
+File类的一个痛点就是没有copy()方法。Files提供了：
 
+- long copy(InputStream in, Path target, CopyOption... options): Copy from a classic I/O input stream to a path. 
 
+- long copy(Path source, OutputStream out): Copy from a path to a classic I/O output stream.
+- Path copy(Path source, Path target, CopyOption... options): Copy from one path to another.
 
+第一个方法复制所有字节到path。On return, the input stream will be at end-of-stream.
+
+可能会传入 java.nio.file.CopyOption可变参数。java.nio.file.StandardCopyOption枚举类实现了接口提供下面的常量。
+
+- ATOMIC_MOVE:作为一个原子文件系统操作执行move。copy方法不使用这个参数，在复制上下文没意义。
+- COPY_ATTRIBUTES: 复制属性与内容
+- REPLACE_EXISTING: 替换存在的目标
+
+LinkOption也实现了CopyOption，它提供了NOFOLLOW_LINKS常量（don’t follow symbolic links）。
+
+默认，当目标存在或是symbolic link，复制操作失败。如果指定 REPLACE_EXISTING，目标也存在了，目标会被替换（除非是非空文件夹）。如果target存在且是symbolic link，符号连接被替换。
+
+返回读/写的字节数。
+
+***Caution***： 如果读写发生i/o错误，导致输入流不在end-of-stream，可能处于不一致状态。强烈建议发生I/O错误马上关闭输入流。
+
+Listing 12-35 refactors Listing 12-27’s SavePage application to use
+copy(InputStream in, Path target, CopyOption... options) to copy a
+web page to a file
+
+***Listing 12-35. Saving Web Page HTML via copy(InputStream, Path, CopyOption...)***
+
+第二个方法从path复制字节到输出流。如果给定输出流是 flushable的，这个方法结束时要调用flush()，可以flush到任何buffered输出。方法返回读或写的字节数。
+
+***Caution***： 读、写的时候发生I/O错误，强烈建议在I/O错误后关输出流。
+
+Listing 12-36 presents the source code to an application that copies all
+bytes from a source path to a file output stream.
+
+***Listing 12-36. Copying from a Source Path to a File Output Stream***
+
+```java
+Files.copy(Paths.get("page.html"), new FileOutputStream("copy.bak"));
+```
+
+第三个方法从path到path，默认target存在或者是一个符号连接操作会失败。然而，当source和target一样，不执行复制。
+
+一些额外注意的地方：
+
+- 属性不一定需要辅助到目标
+- 当支持符号连接，source是一个符号连接，连接的最终目标被复制。
+
+你可能需要指定下面的复制属性： -
+
+- COPY_ATTRIBUTES: 
+- NOFOLLOW_LINKS: 不跟踪符号连接。当source是符号连接，链接本事被复制，而不是连接指向的目标。COPY_ATTRIBUTES在复制符号连接时忽略。
+- REPLACE_EXISTING: target存在时，覆盖target
+
+方法返回path。
+
+Listing 12-37 presents the source code to an application that copies all
+bytes from a source path to a target path.
+
+***Listing 12-37. Copying from a Source Path to a Target Path***
+
+```java
+Files.copy(Paths.get("page.html"), Paths.get("copy.bak"), StandardCopyOption.REPLACE_EXISTING);
+```
+
+###### Moving Files
+
+文件移动也是File类的痛点，Files提供了 Path move(Path source, Path target, CopyOption... options)。
+
+当target存在移动失败，除非source和target同名，这种情况下方法无效。如果source是符号链接，移动的符号而不是target。
+
+支持下面的移动option：
+
+- ATOMIC_MOVE:这个move作为一个原子文件系统操作执行，所有其他option都被忽略。当target存在，要么被替换要么抛异常。
+- REPLACE_EXISTING: target存在被替换（非空文件夹不替换）。如果是符号链接就是移动的符号链接，不是链接的target。
+
+move会复制 lastModifiedTime属性到target。复制时间戳可能导致精度损失。move()的实现也可能尝试复制其他属性。当它们不能被复制时，不需要失败。
+
+**注意**：move可以用于移动空文件夹。当移动非空文件夹，当目录不需要移动文件夹的条目时，就会移动文件夹。当需要移动条目，方法失败。
+
+```java
+Files.move(Paths.get("page.html"), Paths.get("p.html"));
+```
+
+###### Deleting Files
+
+Files删除的2个方法：
+
+- void delete(Path path)
+- boolean deleteIfExists(Path path)
+
+delete(Path path)，如果是文件夹，必须是空的。如果是符号链接，删除的符号链接，不是target。
+
+deleteIfExists(Path path)，如果是符号链接，删除链接。当被删除返回true；否则false。
+
+Listing 12-39 presents the source code to an application that demonstrates
+deleteIfExists().
+
+***Listing 12-39. Deleting a File When It Exists***
+
+```java
+Files.deleteIfExists(Paths.get("page.html"));
+```
 
 ##### Managing Symbolic and Hard Links 
 
+文件系统储存文件，文件夹，和links，链接是指向其他真实文件，文件夹，或者其他链接的文件。links分为符号（软）链接和硬链接。Files有几个方法管理符号链接，也提供了一个创建硬链接的方法。
 
+###### Managing Symbolic Links
+
+符号链接是引用其他文件的特殊文件。 Figure 12-3 illustrates a symbolic link
+
+![1536132051043](https://github.com/konekos/notes/blob/master/src/pic/1536132051043.png?raw=true)
+
+许多文件系统广泛使用符号链接。然后，符号链接可能产生一个循环引用。当递归地遍历文件树时，循环引用可能会有问题，这是将在本章后面讨论。然而，NIO.2’s file tree-walking考虑到了这点。
+
+Files类提供Path createSymbolicLink(Path link, Path target, FileAttribute... attrs)方法对target创建符号连接。
+
+Listing 12-40 presents the source code to an application that demonstrates
+symbolic link creation.
+
+***Listing 12-40. Creating a Symbolic Link***
+
+```java
+Files.createSymbolicLink(Paths.get("D:/clicker"), Paths.get("D:/clicker.link"));
+Files.isSymbolicLink(Paths.get("D:/clicker.link"));
+```
+
+isSymbolicLink是否是符号链接。
+
+readSymbolicLink(Path link)读取符号连接的target。成功返回target的Path。
+
+```java
+Files.readSymbolicLink(Paths.get("D:/clicker.link"));
+```
+
+###### Managing Hard Links
+
+硬链接是一个目录条目，它将名字与文件系统上的文件关联起来。它基本上和原始文件是一样的。所有属性都是相同的：它们具有相同的文件权限、时间戳等。图12-4区分了软链接和硬链接。
+
+![1536136101095](https://github.com/konekos/notes/blob/master/src/pic/1536136101095.png?raw=true)
+
+上面是用户感知，下面是实际情况。
+
+对于一个软链接，文件指向一个inode，而软链接指向另一个inode。软链接inode引用文件inode，它指向文件存储中的数据。于一个硬链接，文件和硬链接都指向文件inode，指向文件存储中的数据。
+
+硬链接比软链接更有限制：
+
+- 链接的目标必须存在。
+- 目录中通常不允许硬链接。
+- 硬链接不允许跨分区或卷。换句话说，它们不能跨文件系统存在。
+- 一个硬链接看起来和行为就像一个普通的文件，所以很难找到。
+
+Files类提供Path createLink(Path link, Path existing)方法创建硬链接。
+
+Listing 12-43 presents the source code to an application that demonstrates
+hard link creation.
+
+***Listing 12-43. Creating a Hard Link***
+
+```java
+Files.createLink(Paths.get(args[0]), Paths.get(args[1]));
+```
 
 ##### Walking the File Tree 
+
+Files类的copy(), move(), and delete()不能处理多个对象。当结合 NIO.2’s File Tree-Walking API，可以处理层级文件。
+
+###### Exploring the File Tree-Walking API
+
+File Tree-Walking API能让你walk a file tree和访问它的所有文件 (regular files, directories, and links)。除了提供执行walk的私有实现，也给应用提供了public接口。
+
+public接口的中心是`java.nio.file.FileVisitor<T>`，被描述为一个*visitor*。在walk时，File Tree-Walking的实现调用接口的方法通知visitor遇到了文件和提供其他通知：
+
+- FileVisitResult postVisitDirectory(T dir, IOException ioe)
+- FileVisitResult preVisitDirectory(T dir, BasicFileAttributes attrs)
+- FileVisitResult visitFile(T file, BasicFileAttributes attrs)
+- FileVisitResult visitFileFailed(T file, IOException ioe)
+
+
+
+
+
+
 
 ##### Working with Additional Capabilities 
 
