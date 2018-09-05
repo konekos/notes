@@ -6862,7 +6862,7 @@ Files.deleteIfExists(Paths.get("page.html"));
 
 符号链接是引用其他文件的特殊文件。 Figure 12-3 illustrates a symbolic link
 
-![1536132051043](https://github.com/konekos/notes/blob/master/src/pic/1536132051043.png?raw=true)
+![1536140624140](https://github.com/konekos/notes/blob/master/src/pic/1536140624140.png)
 
 许多文件系统广泛使用符号链接。然后，符号链接可能产生一个循环引用。当递归地遍历文件树时，循环引用可能会有问题，这是将在本章后面讨论。然而，NIO.2’s file tree-walking考虑到了这点。
 
