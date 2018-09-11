@@ -6929,6 +6929,169 @@ public接口的中心是`java.nio.file.FileVisitor<T>`，被描述为一个*visi
 - FileVisitResult visitFile(T file, BasicFileAttributes attrs)
 - FileVisitResult visitFileFailed(T file, IOException ioe)
 
+每个方法带有应用代码可以查询的参数被调用。当方法完成，返回声明在java.nio.file.FileVisitResult枚举类型之一：
+
+- CONTINUE: 继续walk。当从preVisitDirectory()返回，表明文件夹的目录也要被访问。
+- SKIP_SIBLINGS:继续，不访问文件的兄弟姐妹。如果从preVisitDirectory()返回，文件夹的目录也被跳过， postVisitDirectory() 不被调用。
+- SKIP_SUBTREE:不访问文件夹的目录，继续。只从 preVisitDirectory()返回才有用。否则和 CONTINUE一样。
+- TERMINATE:终结walk。
+
+FileVisitResult postVisitDirectory(T dir, IOException ioe)用于目录dir调用，在文件夹的目录和所有子节点被访问后。当目录迭代提前完成，也会被调用（通过 visitFile()返回 SKIP_SIBLINGS或遍历目录的I/O错误）。当文件夹迭代无错误完成，ioe为null；否则是异常。
+
+FileVisitResult preVisitDirectory(T dir, BasicFileAttributes attrs)用于文件夹dir调用，在文件夹的目录被访问之前。如果返回CONTINUE，文件夹的目录被访问。如果返回 SKIP_SUBTREE or SKIP_SIBLINGS，文件夹里的目录或者子节点不会访问。对于SKIP_SIBLINGS，postVisitDirectory()不被调用。传给attrs的值表明了文件夹的基础属性。
+
+FileVisitResult visitFile(T file, BasicFileAttributes attrs)用于文件夹里面的非文件夹文件调用。attrs代表文件基础属性。
+
+FileVisitResult visitFileFailed(T file, IOException ioe)用于不能被访问文件的调用，因为属性不能被读取，是文件夹不能打开，或者其他的原因。ioe代表阻止访问file的异常。
+
+Each method throws IOException when an I/O error occurs.
+
+`java.nio.file.SimpleFileVisitor<T>`类实现了所有4个方法，提供访问所有文件和重新抛出i/o错误的默认行为。除了visitFileFailed()每个方法返回 CONTINUE；visitFileFailed()重新抛出导致无法访问的异常。
+
+SimpleFileVisitor声明了protected构造器，不能直接实例化。必须继承SimpleFileVisitor，如下：
+
+```java
+class DoNothingVisitor extends SimpleFileVisitor<Path> {
+}
+```
+
+实现visitor类后，传递这个类的实例和一个Path对象到下面的方法：
+
+```java
+Path walkFileTree(Path start, FileVisitor<? super Path> visitor)
+
+```
+
+方法启动一个整个root为start的file tree的depth-first的walk。需要时调用visitor的方法。如果其中一个抛异常，walkFileTree()也抛异常。下面的例子展示了从当前目录开始的walk：
+
+```java
+Files.walkFileTree(Paths.get("."), new DoNothingVisitor());
+```
+
+Don’t expect to see any output. Instead, you will need to codify the visitor
+methods to generate output. This task is demonstrated in Listing 12-44.
+
+***Listing 12-44. Visiting a File Tree and Reporting Last Modified Times and Sizes***
+
+```java
+import java.io.IOException;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-11 17:29
+ */
+public class FileWalkDemo {
+    public static void main(String[] args) throws IOException {
+        Files.walkFileTree(Paths.get("D:/bin"), new DoNothingFileVisitor());
+    }
+
+    static class DoNothingFileVisitor extends SimpleFileVisitor<Path> {
+        /**
+         * Initializes a new instance of this class.
+         */
+        protected DoNothingFileVisitor() {
+            super();
+        }
+
+        /**
+         * Invoked for a directory before entries in the directory are visited.
+         *
+         * <p> Unless overridden, this method returns {@link FileVisitResult#CONTINUE
+         * CONTINUE}.
+         *
+         * @param dir
+         * @param attrs
+         */
+        @Override
+        public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) throws IOException {
+            System.out.printf("preVisitDirectory: %s%n", dir);
+            System.out.printf(" lastModifiedTime: %s%n",
+                    attrs.lastModifiedTime());
+            System.out.printf(" size: %d%n%n", attrs.size());
+            return super.preVisitDirectory(dir, attrs);
+        }
+
+        /**
+         * Invoked for a file in a directory.
+         *
+         * <p> Unless overridden, this method returns {@link FileVisitResult#CONTINUE
+         * CONTINUE}.
+         *
+         * @param file
+         * @param attrs
+         */
+        @Override
+        public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+            System.out.printf("visitFile: %s%n%n", file);
+            System.out.printf(" lastModifiedTime: %s%n",
+                    attrs.lastModifiedTime());
+            System.out.printf(" size: %d%n%n", attrs.size());
+            return super.visitFile(file, attrs);
+        }
+
+        /**
+         * Invoked for a file that could not be visited.
+         *
+         * <p> Unless overridden, this method re-throws the I/O exception that prevented
+         * the file from being visited.
+         *
+         * @param file
+         * @param exc
+         */
+        @Override
+        public FileVisitResult visitFileFailed(Path file, IOException exc) throws IOException {
+            System.out.printf("visitFileFailed: %s %s%n%n", file, exc);
+            return super.visitFileFailed(file, exc);
+        }
+
+        /**
+         * Invoked for a directory after entries in the directory, and all of their
+         * descendants, have been visited.
+         *
+         * <p> Unless overridden, this method returns {@link FileVisitResult#CONTINUE
+         * CONTINUE} if the directory iteration completes without an I/O exception;
+         * otherwise this method re-throws the I/O exception that caused the iteration
+         * of the directory to terminate prematurely.
+         *
+         * @param dir
+         * @param exc
+         */
+        @Override
+        public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+            System.out.printf("postVisitDirectory: %s %s%n%n", dir, exc);
+            return super.postVisitDirectory(dir, exc);
+        }
+    }
+
+}
+```
+
+walkFileTree(Path start, FileVisitor visitor)方法是下面方法的快捷方式：
+
+```java
+Path walkFileTree(Path start, Set<FileVisitOption> options, int maxDepth,
+ FileVisitor<? super Path> visitor)
+```
+
+不仅需要path和visitor，也要options和int。FileVisitOption是声明文件访问选项常数的枚举。当前仅支持的选项是FOLLOW_LINKS（follow symbolic links）。int代表的是walk的最大文件夹层级。Integer.MAX_VALUE表明walk到底。
+
+如果options参数有 FOLLOW_LINKS option,方法跟踪访问的文件夹，因此可以检测cycle。cycle出现在文件夹的入口是文件夹的祖先。Cycle检测是通过记录文件夹的keys执行的，或者当keys不可用时，调用 isSameFile()来测试是否是祖先文件。当检测到cycle，被认为是 I/O error， visitFileFailed()被调用，带有java.nio.file.FileSystemLoopException参数。
+
+The former walkFileTree() method invokes this walkFileTree() method as follows (it doesn’t follow symbolic links and visits all levels of the file tree):
+
+```java
+walkFileTree(start, EnumSet.noneOf(FileVisitOption.class),
+ Integer.MAX_VALUE, visitor)
+```
+
+###### Copying a File Tree
+
+The File Tree-Walking API can be used to copy a file tree. Listing 12-45 presents the source code to an application that accomplishes this task.
+
+***Listing 12-45. Copying a File Tree***
+
 
 
 
