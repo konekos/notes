@@ -7288,17 +7288,271 @@ Stream<Path> pathStream = Files.find(Paths.get("F:/storage"), 100, (path, basicF
         pathStream.forEach(System.out::println);
 ```
 
+```java
+Files.list(Paths.get("C:/")).forEach(System.out::println);
+```
 
+```java
+Stream<String> lines = Files.lines(Paths.get("E:\\bocai/pom.xml"));
+        System.out.println(lines.count());
+```
 
-
+```java
+Files.walk(Paths.get("D:/Bin"), 2).forEach(System.out::println);
+```
 
 #### Using Path Matchers and Watch Services 
 
+File没有提供 handle path-matching and watch services的方法，你必须用 FileSystem来完成。
+
 ##### Matching Paths 
+
+我们通常用pattern matching来过滤，比如ls -l *.html (Unix/Linux) or dir *.html。
+
+NIO.2提供java.nio.file.PathMatcher来支持，一个方法boolean matches(Path path)
+
+FileSystem’s PathMatcher getPathMatcher(String syntaxAndPattern)方法返回PathMatcher对象，用pattern匹配path，形式是syntaxAndPattern， `syntax:pattern`。
+
+支持两种pattern语言，regex and glob。例如:`([^\s]+(\.(?i)(png|jpg))$)`匹配所有.png and .jpg文件。
+
+也可以用glob，比regex局限，类似正则但是更简单。例如：`*.java`  `*.*`  `*.{java,class}`  `foo.?`  `/home/*/*`  `/home/**`   `C:\\*`  
 
 ##### Watching Directories 
 
+改进的文件系统接口包括一个用于监视已注册目录的Watch Service API ，用于监听更改和事件。比如监听文件夹内容改变来更新目录。
+
+Watch Service API 在java.nio.file包由以下类型组成：
+
+- Watchable:
+- WatchEvent:
+- WatchEvent.Kind:
+- WatchEvent.Modifier:
+- WatchKey:
+- WatchService:
+- StandardWatchEventKinds:
+- ClosedWatchServiceException:
+
+...
+
+...
+
+***Listing 12-51. Watching a Directory for Creations, Deletions, and Modifications***
+
+```java
+import java.io.IOException;
+import java.nio.file.*;
+
+import static java.nio.file.StandardWatchEventKinds.*;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-13 17:23
+ */
+public class WatchServiceApiDemo {
+    public static void main(String[] args) throws IOException {
+
+        FileSystem fileSystem = FileSystems.getDefault();
+
+            WatchService watchService = fileSystem.newWatchService();
+            Path dir = fileSystem.getPath("D:/bin");
+            dir.register(watchService, ENTRY_CREATE, ENTRY_DELETE, ENTRY_MODIFY);
+            for (; ; ) {
+                WatchKey key;
+                try {
+                    key = watchService.take();
+                } catch (InterruptedException e) {
+                    return;
+                }
+                for (WatchEvent event : key.pollEvents()) {
+                    WatchEvent.Kind kind = event.kind();
+                    if (kind == OVERFLOW) {
+                        System.out.println("overflow");
+                        continue;
+                    }
+                    WatchEvent watchEvent = event;
+                    Path path = (Path) watchEvent.context();
+                    System.out.printf("%s: %s%n", watchEvent.kind(), path);
+                }
+                boolean valid = key.reset();
+                if (!valid)
+                    break;
+            }
+    }
+}
+```
+
 #### Exercise
+
+```
+The following exercises are designed to test your understanding of Chapter 12’s content:
+1. Define file system and file.
+2. The File-based file system interface is problematic. For example,
+File’s delete() method returns false when it cannot delete a file.
+Why is this behavior a problem?
+3. Identify the packages that implement the improved file system
+interface.
+4. Identify the types that form the core of the improved file system
+interface.
+5. How do you obtain a reference to the default file system?
+6. How would you create a new file system?
+7. Define path.
+8. True or false: The Path interface represents a hierarchical path to a
+file that must exist.
+9. Describe the element layout of a Path object.
+10. What methods do Path and File provide for converting from Path to
+File and from File to Path?
+11. Identify the FileSystem method that returns a Path object.
+12. What happens when you attempt to create a Path object using syntax
+that doesn’t conform to the syntax that is parsed by the file system
+provider that created the FileSystem responsible for creating the
+Path object?
+13. Which methods does the Paths class provide for more conveniently
+returning Path objects?
+14. Identify Path’s methods for returning its name elements.
+15. True or false: Path’s boolean isRelative() method returns
+false to signify an absolute path.
+16. How do you obtain a file system’s root(s)?
+17. How do you convert a relative path to an absolute path?
+18. Identify Path’s method for removing path redundancies, creating a
+relative path between two paths, and resolving (joining) two paths.
+19. How do you resolve a path string against the current path’s parent path?
+20. How do you convert the current Path instance to a URI object?
+21. What does the Path toRealPath(LinkOption... options)
+method accomplish?
+22. True or false: The Files class provides static methods for
+performing path-matching and directory-watching tasks.
+23. Define file store.
+24. What method does the Files class provide for obtaining a file store?
+25. What information can you obtain about a file store?
+26. How can you access all available file stores for a given file system?
+27. What support does NIO.2 offer for working with attributes?
+28. How are attributes organized?
+29. Describe the attribute type hierarchy.
+30. How can you identify all supported attribute views for a given file
+system?
+31. What are basic attributes? Identify the view for managing basic
+attributes and name the basic attributes.
+32. True or false: You can read basic attributes in bulk by calling
+BasicFileAttributeView’s BasicFileAttributes
+readAttributes() method.
+33. Define file key.
+34. When you call the Files class’s getAttribute() or
+setAttribute() method to get or set a basic or other kind of
+attribute value, what syntax must you follow for identifying the
+attribute?
+35. What do the UserPrincipal and GroupPrincipal interfaces
+represent?
+36. When would FileOwnerAttributeView’s setOwner() method
+throw FileSystemException on a Windows operating system?
+37. The AclEntry class describes an entry in an ACL. Identify its
+components.
+38. True or false: You can define your own file attributes.
+39. Identity the attributes supported by FileStoreAttributeView.
+40. True or false: !exists(path) is equivalent to notExists(path).
+41. What is the isDirectory() method’s default policy on
+symbolic links?
+42. Why should you be careful when using the return values from
+exists(), notExists(),isExecutable(), isReadable(), and
+isWritable()?
+43. What does the createFile() method do when called to create a file
+that already exists?
+44. Define optional specific exception.
+45. How would you set POSIX file permissions when creating a file?
+46. In which directory does Path createTempFile(String prefix,
+String suffix, FileAttribute<?>... attrs) create a
+temporary file?
+47. Identify three ways to delete a temporary file before an application exits.
+48. Identify NIO.2’s three methods for reading all bytes or lines of text from
+a regular file into memory.
+49. The methods in the previous exercise are great for reading the
+contents of small regular files into memory. What methods would you
+use to read very large files (whose contents probably don’t fit into
+memory)?
+50. The newInputStream() method supports a varargs list of open
+options. Identify and describe the open options supported by the
+StandardOpenOption enum. (Not all of these options apply to
+newInputStream().)
+51. Identify NIO.2’s three methods for writing all bytes or lines of text from
+memory to a regular file.
+52. The methods in the previous exercise are great for writing the contents
+of memory to small regular files. What methods would you use to write
+very large amounts of content (which probably doesn’t fit into memory)
+to regular files?
+53. True or false: When no options are specified, newOutputStream()
+works as if the CREATE, TRUNCATE_EXISTING, and WRITE options
+are present.
+54. What is the purpose of the SeekableByteChannel interface?
+55. The FileChannel class implements SeekableByteChannel. Why
+does it specify FileChannel position(long newPosition)
+and FileChannel truncate(long size) instead of specifying
+SeekableByteChannel position(long newPosition) and
+SeekableByteChannel truncate(long size)?
+56. How do you obtain a SeekableByteChannel object?
+57. What did NIO.2 add to the FileChannel class so that you would no
+longer have to rely on a classic I/O type (such as RandomAccessFile)
+to obtain a file channel?
+58. What method does the Files class provide for creating a directory?
+59. True or false: The Files class’s directory-creation method
+automatically creates nonexistent ancestor directories of the directory
+being created.
+60. Identify the Files class’s methods for creating temporary directories.
+61. What does NIO.2 provide for obtaining a list of a directory’s entries?
+62. How do you filter a list of directory entries so that only desired entries
+are returned?
+63. What methods does Files provide to copy a file to another file?
+64. Two of the copy() methods support a varargs list of copy options.
+Identify and describe the copy options supported by the
+StandardCopyOption enum.
+65. What other copy option can be passed to these copy() methods?
+66. What method does Files provide to move a file to another file?
+67. What copy options are supported by this file-movement method?
+68. Identify the Files methods for deleting files.
+69. Define symbolic link and circular reference.
+70. Identify the Files method for creating a symbolic link to a target.
+71. How do you determine if an arbitrary path represents a symbolic link?
+72. How do you read the target of a symbolic link?
+73. Define hard link.
+74. In what ways are hard links more restrictive than soft links?
+75. Identify the Files method for creating a hard link for an existing file.
+76. Describe the File Tree-Walking API.
+77. Identify the types that comprise the public portion of the File
+Tree-Walking API.
+78. True or false: SKIP_SUBTREE is only meaningful when returned from
+the preVisitDirectory() method; otherwise, this result type is the
+same as CONTINUE.
+79. What methods does the Files class provide for walking the file tree?
+80. What does the Stream<Path> find(Path start, int
+maxDepth, BiPredicate<Path,BasicFileAttributes>
+matcher, FileVisitOption... options) method accomplish?
+81. How does NIO.2 support path-matching?
+82. What is the purpose of the Watch Service API?
+83. Identify and describe the types that comprise the Watch Service API.
+84. Exercise 22 in Chapter 2 asked you to create a Touch application.
+Rewrite this application to use NIO.2 types.
+
+```
 
 #### Summary 
 
+NIO.2 improves the file system interface that was previously limited to the
+File class. The improved file system interface features methods throwing
+exceptions, support for symbolic links, broad and efficient support for file
+attributes, directory streams, support for alternative file systems via custom
+file system providers, support for file copying and file moving, support for
+walking the file tree/visiting files and watching directories, and more.
+The improved file system interface is implemented mainly by the various types
+in the java.nio.file, java.nio.file.attribute, and java.nio.file.spi
+packages. FileSystem, FileSystems, and FileSystemProvider form the core
+of the improved file system interface.
+
+
+
+### Chapter 13 Asynchronous I/O
+
+NIO提供了multiplexed I/O(非阻塞I/O和readiness selection的组合，前7章讨论后8章讨论)让高可伸缩服务器的创建更容易。客户端代码用一个selector注册一个socket channel,当channel准备开始I/O时，会通知它。
+
+NIO.2提供了 asynchronous I/O，让客户端启动一个I/O操作然后当操作完成时通知客户端。类似于multiplexed I/O，asynchronous I/O也通常用于促进高可伸缩服务器的创建。
+
+**注意**：Multiplexed I/O通常用于提供高度可伸缩和高性能的轮询接口的操作系统如Linux and Solaris。Asynchronous I/O通常用于提供高度可伸缩和高性能的异步I/O设备——比如newer Windows operating systems。
+
+本章首先介绍了异步输入输出的概述。然后探索asynchronous file channels, socket channels, and channel groups。
