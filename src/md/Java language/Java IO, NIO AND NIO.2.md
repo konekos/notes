@@ -7556,3 +7556,108 @@ NIO.2提供了 asynchronous I/O，让客户端启动一个I/O操作然后当操�
 **注意**：Multiplexed I/O通常用于提供高度可伸缩和高性能的轮询接口的操作系统如Linux and Solaris。Asynchronous I/O通常用于提供高度可伸缩和高性能的异步I/O设备——比如newer Windows operating systems。
 
 本章首先介绍了异步输入输出的概述。然后探索asynchronous file channels, socket channels, and channel groups。
+
+#### Asynchronous I/O Overview
+
+java.nio.channels.AsynchronousChannel接口描述了asynchronous channel，是一个支持异步I/O操作的（读写等等）channel。调用一个返回future或者需要completion handler参数的方法来启动I/O操作：
+
+- `Future<V> operation(...)`:  V是操作结果。Future方法可以被调用去检查i/o是否完成，等待完成和接收结果。
+- `void operation(... A attachment, CompletionHandler handler):`调用operation，带有参数attachment（一个连接到i/o操作的对象当消费结果时提供context）和参数handler是`java.nio.channels.CompletionHandler<V, A>`接口的实例。A是attachment，V是i/o操作的结果。attachment对用无状态CompletionHandler对象消耗大量i/o操作的结果的情况很重要。当i/o操作完成或失败，handler被调用来消费操作的结果。
+
+CompletionHandler声明下面的方法消费操作成功完成的result，并且得知操作失败原因和采取适当动作：
+
+- void completed(V result, A attachment): 当操作成功完成被调用。操作的结果是result。attachment是操作启动时连接到操作的对象。
+- void failed(Throwable t, A attachment): 当操作失败被调用。t是操作失败原因。attachment是..
+
+被调用后，方法立即返回。然后你调用Future方法或者在CompletionHandler实现里提供了解更多i/o操作状态或执行操作结果的代码。
+
+```
+                               CANCELLATION
+```
+
+Future声明了boolean cancel(boolean mayInterruptIfRunning)方法来取消执行。这个方法导致所有等待i/o操作结果的线程抛出`java.util.concurrent.CancellationException`。底层I / O操作是否被取消是高度特定于实现的，因此没详细说明。如果取消让连接的channel或者实体处于不一致状态，channel被放入一个特定于实现的error state，阻止再次尝试发起与被取消操作类似的i/o操作。例如，如果一个操作被取消了，但是实现不能保证字节没有从通道读取，它将在通道放入错误error state。再次尝试会导致未指定的运行时异常被抛出。类似地，如果一个操作被取消了，但是实现不能保证字节没有被写入通道，那么启动一个操作的后续尝试将会以一个未指明的运行时异常失败。
+
+如果 cancel()的参数mayInterruptIfRunning是true，i/o操作可能通过关闭channel被打断。这种情况下，所有等待i/o操作的线程导致抛出 CancellationException，这个channel上的其他i/o操作抛出 java.nio.channels.AsynchronousCloseException完成。
+
+当 cancel()被调用于取消读写，推荐操作用的所有buffers被discarded，这样做是为了确保在通道保持打开状态时不会访问buffer。
+
+```
+______________________________________________________________________________
+```
+
+AsynchronousChannel继承java.nio.channels.Channel接口，继承了isOpen() and close()。 close()方法要遵循下面的附加规定：这个通道上的任何未完成的异步操作都将抛出AsynchronousCloseException objects完成。channel关闭后，启动i/o异步的尝试会立刻导致java.nio.channels.ClosedChannelException。
+
+**注意**：Asynchronous channels对多线程是安全的。一些channel实现可能支持并发读写，但在任何给定的时间，可能不允许超过一个线程读和一个线程写。
+
+java.nio.channels.AsynchronousByteChannel继承AsynchronousChannel。有4个方法：
+
+- `Future<Integer> read(ByteBuffer dst): `从这个通道读取一个字节序列到byte buffer。返回Future当可用时访问字节。
+- ` <A> void read(ByteBuffer dst, A attachment, CompletionHandler<Integer,? super A> handler): `
+- `Future<Integer> write(ByteBuffer src)`:从byte buffer写字节序列到channel。返回Future。
+- `<A> void write(ByteBuffer src, A attachment, CompletionHandler<Integer,? super A> handler):`
+
+read()抛出java.nio.channels.ReadPendingException，当前一个读未完成且不允许超过一个线程读。write抛出 java.nio.channels.WritePendingException。
+
+**警告**：java.nio.ByteBuffer不是线程安全的。当读或写启动，注意必须保证操作结束前buffer不被访问。
+
+#### Asynchronous File Channels
+
+抽象java.nio.channels.AsynchronousFileChannel类描述了一个 asynchronous channel用于读写操作文件。调用下面方法创建AsynchronousFileChannel’s open()：
+
+```java
+AsynchronousFileChannel ch;
+ch = AsynchronousFileChannel.open(Paths.get("somefile"));
+```
+
+该文件包含一个可变长度的字节序列，可以读取和写入，并且可以查询其当前大小。当字节超出当前大小时，文件的大小会增加;当文件被截断时，大小会减少。
+
+调用AsynchronousFileChannel’s read() and write()方法来读写文件。
+
+**警告**：AsynchronousFileChannel实现AsynchronousChannel而不是AsynchronousByteChannel，因为这个类的读写方法带有position，AsynchronousByteChannel读写方法没有position概念。
+
+asynchronous file channel在文件中没有current position。代替的是，file position作为参数传递给启动异步操作的每个read和write方法。
+
+**注意**：read() and write()必须提供绝对position（相对与0）。没有一个点让读写去相对这个点因为读写操作可以在之前的操作完成之前启动，不能保证顺序。相同原因，AsynchronousFileChannel类也没设置和查询当前position的方法。
+
+除了支持读写外，AsynchronousFileChannel定义了下面的操作：
+
+- force(boolean metaData)。文件更新强制发送到底层储存设备，确保数据不丢失。
+- 文件的一个区域被锁住。调用lock() and tryLock()完成。两个方法返回Future，CompletionHandler作为参数。
+
+I’ve created an AFCDemo application that uses AsynchronousFileChannel to
+open a file and read up to the first 1024 bytes in a Future context. Listing 13-1
+presents the source code.
+
+***Listing 13-1. Reading Bytes from a File and Polling the Returned Future for Completion***
+
+```java
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.file.Paths;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-14 18:09
+ */
+public class AsyncFileChannelDemo {
+    public static void main(String[] args) throws InterruptedException, IOException, ExecutionException {
+
+        AsynchronousFileChannel channel = AsynchronousFileChannel.open(Paths.get("page.html"));
+
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        Future<Integer> result = channel.read(buffer, 0);
+        while (!result.isDone()) {
+            System.out.println("waiting done");
+            TimeUnit.MILLISECONDS.sleep(1);
+        }
+        System.out.println("Finished = " + result.isDone());
+        System.out.println("Bytes read = " + result.get());
+        channel.close();
+    }
+}
+```
+
