@@ -7661,3 +7661,251 @@ public class AsyncFileChannelDemo {
 }
 ```
 
+**NOTE:** AsynchronousFileChannel open(Path file, OpenOption... options)尝试打开或创建文件用于读/写，返回asynchronous file channel来访问文件。可能传入java.nio.file.OpenOption接口描述的参数，是java.nio.file.StandardOpenOption实现的。没有指定参数， open()尝试打开存在的文件来read。
+
+假设一个存在的文件已经被成功打开，分配了一个byte buffer，读操作在position 0启动。返回的Future对象的isDone()方法反复被调用。直到操作完成。
+
+I’ve also created a second AFCDemo application that uses AsynchronousFileChannel to open a file and read up to the first 1024 bytes in a CompletionHandler context. Listing 13-2 presents the source code.
+
+***Listing 13-2. Reading Bytes from a File and Displaying the Results in a Completion Handler***
+
+```java
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousFileChannel;
+import java.nio.channels.CompletionHandler;
+import java.nio.file.Paths;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-14 18:09
+ */
+public class AsyncFileChannelDemo1 {
+    public static void main(String[] args) throws IOException {
+        AsynchronousFileChannel channel = AsynchronousFileChannel.open(Paths.get("page.html"));
+        ByteBuffer buffer = ByteBuffer.allocate(1024);
+        Thread ct = Thread.currentThread();
+        channel.read(buffer, 0, null, new CompletionHandler<Integer, Void>() {
+
+            @Override
+            public void completed(Integer result, Void attachment) {
+                System.out.println("Byte read: " + result);
+                ct.interrupt();
+            }
+
+            @Override
+            public void failed(Throwable exc, Void attachment) {
+                System.out.println("failed: " + exc.toString());
+                ct.interrupt();
+            }
+        });
+        System.out.println("waiting for completion");
+        try {
+            ct.join();
+        } catch (InterruptedException e) {
+            e.printStackTrace();
+        }
+        channel.close();
+    }
+}
+```
+
+#### Asynchronous Socket Channels
+
+抽象类java.nio.channels.AsynchronousServerSocketChannel描述了asynchronous channel for stream-oriented listening sockets。stream-oriented connecting sockets的对应channel由抽象类java.nio.channels.AsynchronousSocketChannel描述。
+
+**Note**：AsynchronousServerSocketChannel实现AsynchronousChannel而不是AsynchronousByteChannel，因为没声明read()/write()。AsynchronousSocketChannel实现了AsynchronousByteChannel。
+
+##### AsynchronousServerSocketChannel
+
+ 调用AsynchronousServerSocketChannel open()获取。
+
+```java
+AsynchronousServerSocketChannel ch;
+ch = AsynchronousServerSocketChannel.open();
+```
+
+根据AsynchronousServerSocketChannel的文档，这个方法返回绑定到默认group的asynchronous server socket channel。可选的 AsynchronousServerSocketChannel open(AsynchronousChannelGroup group) 方法返回绑定到指定group的channel。随后讨论asynchronous channel groups。
+
+调用` AsynchronousServerSocketChannel setOption(SocketOption name,
+T value)`方法配置asynchronous server socket channel。目前只有 SO_RCVBUF and SO_REUSEADDR。
+
+一个新建的可能配置过的asynchronous server socket channel是打开了但还没绑定到本地地址。可以被绑定到本地地址来配置监听连接，通过调用 bind() 。一旦绑定，任意accept()方法返回Future。没有绑定去accept抛出java.nio.channels.NotYetBoundException。
+
+***Note***：Asynchronous server socket channels多线程是线程安全的，虽然在任意时刻最多只有一个accept操作可以停留。如果一个线程在前一个accept操作结束前启动accept操作，抛出java.nio.channels.AcceptPendingException。
+
+To demonstrate AsynchronousServerSocketChannel, I’ve created a Server application consisting of Server, Attachment, ConnectionHandler, and ReadWriteHandler classes. Listing 13-3 presents Server’s source code.
+
+***Listing 13-3. Launching a Server That Handles Connections and Reads/Writes Asynchronously***
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.channels.AsynchronousServerSocketChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-17 16:23
+ */
+public class Server {
+    private final static int PORT = 9090;
+    private final static String HOST = "localhost";
+
+    public static void main(String[] args) {
+        AsynchronousServerSocketChannel channelServer;
+
+        try {
+            channelServer = AsynchronousServerSocketChannel.open();
+            channelServer.bind(new InetSocketAddress(HOST, PORT));
+            System.out.printf("Server listening at %s%n",
+                    channelServer.getLocalAddress());
+        } catch (IOException e) {
+            System.err.println("Unable to open or bind server socket channel");
+            return;
+        }
+
+        Attachment attachment = new Attachment();
+        attachment.channelServer = channelServer;
+        channelServer.accept(attachment, new ConnectionHandler());
+
+        try {
+            Thread.currentThread().join();
+        } catch (InterruptedException e) {
+            System.out.println("Server terminating");
+        }
+
+    }
+}
+```
+
+```java
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousServerSocketChannel;
+import java.nio.channels.AsynchronousSocketChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-17 16:29
+ */
+public class Attachment {
+    public AsynchronousServerSocketChannel channelServer;
+    public AsynchronousSocketChannel channelClient;
+    public boolean isReadMode;
+    public ByteBuffer buffer;
+    public SocketAddress clientAddr;
+}
+```
+
+```java
+import java.io.IOException;
+import java.net.SocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousSocketChannel;
+import java.nio.channels.CompletionHandler;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-17 16:31
+ */
+public class ConnectionHandler implements CompletionHandler<AsynchronousSocketChannel, Attachment> {
+
+    @Override
+    public void completed(AsynchronousSocketChannel channelClient, Attachment attachment) {
+        SocketAddress clientAddr = null;
+        try {
+            clientAddr = channelClient.getRemoteAddress();
+            System.out.printf("Accepted connection from %s%n", clientAddr);
+            attachment.channelServer.accept(attachment, this);
+
+            Attachment newAtt = new Attachment();
+            newAtt.channelServer = attachment.channelServer;
+            newAtt.channelClient = channelClient;
+            newAtt.isReadMode = true;
+            newAtt.buffer = ByteBuffer.allocate(2048);
+            newAtt.clientAddr = clientAddr;
+            ReadWriteHandler rwh = new ReadWriteHandler();
+            channelClient.read(newAtt.buffer, newAtt, rwh);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void failed(Throwable exc, Attachment attachment) {
+        System.out.println("Failed to accept connection");
+    }
+}
+```
+
+```java
+import java.io.IOException;
+import java.nio.channels.CompletionHandler;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-17 16:38
+ */
+public class ReadWriteHandler implements CompletionHandler<Integer, Attachment> {
+
+    @Override
+    public void completed(Integer result, Attachment att) {
+        if (result == -1) {
+            try {
+                att.channelClient.close();
+                System.out.printf("Stopped listening to client %s%n",
+                        att.clientAddr);
+            } catch (IOException ioe) {
+                ioe.printStackTrace();
+            }
+            return;
+        }
+
+        if (att.isReadMode) {
+            att.buffer.flip();
+            int limit = att.buffer.limit();
+            byte[] bytes = new byte[limit];
+            att.buffer.get(bytes, 0, limit);
+            System.out.printf("Client at %s sends message: %s%n",
+                    att.clientAddr,
+                    new String(bytes));
+            att.isReadMode = false;
+            att.buffer.rewind();
+            att.channelClient.write(att.buffer, att, this);
+        } else {
+            att.isReadMode = true;
+            att.buffer.clear();
+            att.channelClient.read(att.buffer, att, this);
+        }
+
+    }
+
+    @Override
+    public void failed(Throwable exc, Attachment attachment) {
+        System.out.println("Connection with client broken");
+    }
+}
+```
+
+##### AsynchronousSocketChannel
+
+调用 AsynchronousSocketChannel open()获取：
+
+```java
+AsynchronousSocketChannel ch = AsynchronousSocketChannel.open();
+```
+
+根据AsynchronousSocketChannel的文档，返回绑定到默认group的asynchronous socket channel。也可以使用另一个重载方法指定线程组。
+
+可以使用setOption(SocketOption name, T value)方法配置，支持SO_RCVBUF, SO_SNDBUF, SO_KEEPALIVE, SO_REUSEADDR, and TCP_NODELAY。
+
+新建和配置的channel还未连接，要连接到 asynchronous server socket channel的socket。不可能为一个任意存在的socket创建asynchronous socket channel。
+
+通过connect()连接。一旦连接，就会保持连接状态直到被关闭。是不是连接了可以调用SocketAddress getRemoteAddress()方法来知道，没连接是null。没连接就尝试调用i/o操作导致NotYetConnectedException.
+
+**Note：**Asynchronous socket channels是线程安全的。最多同时存在一个读和一个写操作。
+
+To demonstrate AsynchronousSocketChannel, I’ve created a Client application consisting of the Client, Attachment, and ReadWriteHandler classes. Listing 13-7 presents Client’s source code.
+
+***Listing 13-7. Launching a Client That Handles Reads/Writes Asynchronously***
+
