@@ -7909,3 +7909,297 @@ To demonstrate AsynchronousSocketChannel, I’ve created a Client application co
 
 ***Listing 13-7. Launching a Client That Handles Reads/Writes Asynchronously***
 
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousSocketChannel;
+import java.nio.charset.Charset;
+import java.util.concurrent.ExecutionException;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-17 17:58
+ */
+public class Client {
+    private final static Charset CSUTF8 = Charset.forName("UTF-8");
+    private final static int PORT = 9090;
+    private final static String HOST = "localhost";
+
+    public static void main(String[] args) {
+
+        AsynchronousSocketChannel channel;
+
+        try {
+            channel = AsynchronousSocketChannel.open();
+        } catch (IOException e) {
+            System.err.println("Unable to open client socket channel");
+            return;
+        }
+
+        try {
+            channel.connect(new InetSocketAddress(HOST, PORT)).get();
+            System.out.printf("Client at %s connected%n",
+                    channel.getLocalAddress());
+        } catch (InterruptedException | ExecutionException e) {
+            System.err.println("Server not responding");
+            return;
+        }catch (IOException e) {
+            System.err.println("Unable to obtain client socket channel's " +
+                    "local address");
+            return;
+        }
+
+
+        Attachment attachment = new Attachment();
+        attachment.channel = channel;
+        attachment.isReadMode = false;
+        attachment.buffer = ByteBuffer.allocate(2048);
+        attachment.mainThd = Thread.currentThread();
+
+        byte[] data = "Hello".getBytes();
+        attachment.buffer.put(data);
+        attachment.buffer.flip();
+        channel.write(attachment.buffer, attachment, new ReadWriteHandler());
+
+        try {
+            attachment.mainThd.join();
+        } catch (InterruptedException e) {
+            System.out.println("Client terminating");
+        }
+    }
+}
+```
+
+```java
+import java.nio.ByteBuffer;
+import java.nio.channels.AsynchronousSocketChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-17 18:02
+ */
+public class Attachment {
+    public AsynchronousSocketChannel channel;
+    public boolean isReadMode;
+    public ByteBuffer buffer;
+    public Thread mainThd;
+}
+```
+
+```java
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.channels.CompletionHandler;
+import java.nio.charset.Charset;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-17 18:06
+ */
+public class ReadWriteHandler implements CompletionHandler<Integer, Attachment> {
+
+    private BufferedReader conReader =
+            new BufferedReader(new InputStreamReader(System.in));
+
+    @Override
+    public void completed(Integer result, Attachment attachment) {
+        if (attachment.isReadMode) {
+            attachment.buffer.flip();
+            int limit = attachment.buffer.limit();
+            byte[] bytes = new byte[limit];
+            attachment.buffer.get(bytes, 0, limit);
+            String msg = new String(bytes, Charset.defaultCharset());
+            System.out.printf("Server responded: %s%n", msg);
+
+            try {
+                msg = "";
+                while (msg.length() == 0) {
+                    System.out.print("Enter message (\"end\" to quit): ");
+                    msg = conReader.readLine();
+                }
+                if (msg.equalsIgnoreCase("end")) {
+                    attachment.mainThd.interrupt();
+                    return;
+                }
+            } catch (IOException e) {
+                System.err.println("Unable to read from console");
+            }
+
+            attachment.isReadMode = false;
+            attachment.buffer.clear();
+            byte[] data = msg.getBytes();
+            attachment.buffer.put(data);
+            attachment.buffer.flip();
+            attachment.channel.write(attachment.buffer, attachment, this);
+        } else {
+            attachment.isReadMode = true;
+            attachment.buffer.clear();
+            attachment.channel.read(attachment.buffer, attachment, this);
+        }
+    }
+
+    @Override
+    public void failed(Throwable exc, Attachment attachment) {
+        System.err.println("Server not responding");
+        System.exit(1);
+    }
+}
+```
+
+#### Asynchronous Channel Groups
+
+抽象java.nio.channels.AsynchronousChannelGroup类描述了一组目的为资源共享的asynchronous channels。一个group和一个thread pool关联，tasks被提交到线程池，来处理 I/O事件和dispatch to completion handlers来消费在group’s channels执行异步操作的结果。
+
+**Note** ：相关的 thread pool由group拥有；group的终止会导致关联的线程池shut down。
+
+AsynchronousServerSocketChannels and AsynchronousSocketChannels 附属于group。当你使用无参方法创建这两种channel，是绑定到默认group的，是system-wide channel group自动由JVM构造和维护。default group有一个关联的线程池，需要时创建线程。你可以用以下系统属性在JVM启动时配置默认组：
+
+- java.nio.channels.DefaultThreadPool.threadFactory:是java.util.concurrent.ThreadFactory的具体类的全限定名。此类使用系统类加载器加载实例化。factory的 newThread(Runnable r) 方法为默认group的线程池创建线程。如果加载实例化属性的过程失败，在构建默认组的时候抛出未指定error。（如果默认组的 ThreadFactory 没配置，默认组的pooled threads是守护线程。）
+
+- java.nio.channels.DefaultThreadPool.initialSize:指定default group’s thread pool的初始size。
+
+你可能更想定义自己的channel group，这会让你更多服务I/O operations线程的控制权。另外，提供了shut down线程和等待终止的机制。你可以调用下面方法创建自己的asynchronous channel group：
+
+- AsynchronousChannelGroup withCachedThreadPool(ExecutorService executor, int initialSize): 使用指定thread pool创建
+- AsynchronousChannelGroup withFixedThreadPool(int nThreads, ThreadFactory threadFactory):使用一个 fixed thread pool创建。
+- AsynchronousChannelGroup withThreadPool (ExecutorService executor):使用指定thread pool创建。
+
+The following example creates a new channel group that has a fixed pool of 20 threads. Each thread is constructed with the default thread factory from the java.util.concurrent.Executors class:
+
+```java
+AsynchronousChannelGroup group;
+group = AsynchronousChannelGroup.withFixedThreadPool(20, Executors.defaultThreadFactory());
+```
+
+创建后，你需要把asynchronous server socket channel and an asynchronous socket channel绑定到group上：
+
+- AsynchronousServerSocketChannel open(AsynchronousChannelGroup group)
+- AsynchronousSocketChannel open(AsynchronousChannelGroup group)
+
+The following example creates an asynchronous server socket channel and an asynchronous socket channel that are bound to the previously-created group:
+
+```java
+AsynchronousServerSocketChannel chServer;
+chServer = AsynchronousServerSocketChannel.open(group);
+AsynchronousSocketChannel chClient = AsynchronousSocketChannel.open(group);
+```
+
+**Note** ：当写completion handler，避免操作阻塞线程很重要。当所有线程被阻塞时，整个应用程序可能会阻塞。对于custom or cached thread pool，queue可能变得非常大无限增长导致oom。
+
+绑定到group便于关闭和终止。void shutdown()方法启动一个group的顺序关闭。isShutdown() 方法查看是否关闭。关闭的group不能创建channel。
+
+一旦shut down，group终止会在下面操作完成后终止——所有绑定到group的asynchronous channels关闭，所有活跃的executing completion handlers完结，group使用的资源释放。不会尝试停止或中断正在执行completion handlers的线程。isTerminated()检查是否终止。 boolean awaitTermination(long
+timeout, TimeUnit unit)用于在关闭前阻塞。
+
+shutdownNow()强制关闭group。 除了顺序shut down，会调用group里open channels的close()方法。
+
+The following example demonstrates the aforementioned methods:
+
+```java
+// Initiate an I/O operation that isn't satisfied.
+channel.accept(null, completionHandler);
+// After the operation has begun, the channel group is used to control
+// the shutdown.
+if (!group.isShutdown())
+{
+ // After the group is shut down, no more channels can be bound to it.
+ group.shutdown();
+}
+if (!group.isTerminated())
+{
+ // Forcibly shut down the group. The channel is closed and the
+ // accept operation aborts.
+ group.shutdownNow();
+}
+// The group should be able to terminate; wait for 10 seconds maximum.
+group.awaitTermination(10, TimeUnit.SECONDS);
+```
+
+##### What About AsynchronousFileChannel?
+
+AsynchronousFileChannels不附属于group。然而，和一个线程池关联来提交task，执行i/o event和dispatch to completion handlers消费channel操作的结果。在channel启动用于执行i/o操作的completion handler保证会被线程池的一个线程调用，这就确保了 completion handler是由一个带有预期标识的线程运行的。如果i/o操作立即完成了，启动线程本事是线程池的线程，completion handler直接被启动线程调用。
+
+当asynchronous file channel没指定线程池，使用基于系统的默认线程池，可能和其他的channels共享。默认线程池由 AsynchronousChannelGroup定义的系统属性配置
+
+AsynchronousFileChannel’s AsynchronousFileChannel open(Path file, OpenOption... options)创建的 asynchronous file channel 和默认线程池关联。调用` AsynchronousFileChannel open(Path file, Set options, ExecutorService executor, FileAttribute... attrs)`指定线程池。
+
+##### EXERCISES
+
+```
+The following exercises are designed to test your understanding of Chapter 13’s content:
+1. Define asynchronous channel.
+2. Identify the two ways to initiate an I/O operation with an asynchronous
+channel.
+3. True or false: After a channel is closed, further attempts to initiate
+asynchronous I/O operations complete immediately with cause
+AsynchronousCloseException.
+4. Identify the methods declared by the AsynchronousByteChannel
+interface.
+5. True or false: The ByteBuffer object is safe for use by multiple
+concurrent threads.
+6. Identify the class for reading, writing, and manipulating a file
+asynchronously.
+7. True or false: An asynchronous file channel doesn’t have a current
+position within a file.
+8. If you pass no options to AsynchronousFileChannel’s
+AsynchronousFileChannel open(Path file, OpenOption...
+options) method, what is this method’s default behavior?
+9. How do you obtain an AsynchronousServerSocketChannel object
+or an AsynchronousSocketChannel object?
+10. Identify AsynchronousServerSocketChannel's documented
+socket options.
+11. After obtaining an AsynchronousServerSocketChannel object,
+what must you do before you can call either of its accept() methods?
+12. After obtaining an AsynchronousSocketChannel object, what must
+you do before you can perform reads and writes?
+13. How do you determine if an asynchronous socket channel is connected
+to an asynchronous server socket channel?
+14. True or false: Asynchronous socket channels are safe for use by
+multiple concurrent threads.
+15. What is the purpose of the AsynchronousChannelGroup class?
+16. What does a group use for task submission?
+17. Identify the system properties for configuring the default group.
+18. Describe AsynchronousChannelGroup’s shutDownNow() method.
+19. True or false: AsynchronousFileChannels belong to groups.
+20. Write a Copy application that uses AsynchronousFileChannel to
+copy a source file to a destination file asynchronously
+```
+
+#### Summary
+
+Asynchronous I/O让客户端代码启动I/O操作，随后操作完成时通知客户端。The AsynchronousChannel interface describes an asynchronous channel that supports asynchronous
+I/O operations (reads, writes, and so on). An I/O operation is initiated by calling a method that returns a Future or requires a CompletionHandler argument.
+
+CompletionHandler declares a completed() method to consume the result
+of an operation when it completes successfully. It also declares a failed()
+method to report operation failure (in terms of an exception) and allow an
+application to take appropriate action.
+
+The AsynchronousByteChannel interface extends AsynchronousChannel and
+declares a pair of read() methods and a pair of write() methods. Each pair
+consists of a method that returns a Future and a method that requires a
+CompletionHandler argument.
+
+The abstract AsynchronousFileChannel class describes an asynchronous
+channel for reading, writing, and manipulating a file. The abstract
+AsynchronousServerSocketChannel class describes an asynchronous
+channel for stream-oriented listening sockets. Its counterpart channel for
+stream-oriented connecting sockets is described by the abstract
+AsynchronousSocketChannel class
+
+The abstract AsynchronousChannelGroup class describes a grouping of
+asynchronous channels for the purpose of resource sharing. A group has
+an associated thread pool to which tasks are submitted, to handle I/O
+events and to dispatch to completion handlers that consume the results of
+asynchronous operations performed on the group’s channels
+
+AsynchronousServerSocketChannels and AsynchronousSocketChannels
+created via their noargument open() methods are bound to the default group.
+They can be bound to groups created from AsynchronousChannelGroup’s class
+methods by passing these group objects to their open(AsynchronousChannelGroup)
+methods.
+
+### Chapter 14 Completion of Socket Channel Functionality
+
