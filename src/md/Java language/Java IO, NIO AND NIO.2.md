@@ -8203,3 +8203,133 @@ methods.
 
 ### Chapter 14 Completion of Socket Channel Functionality
 
+JDK 7最终补全了NIO.2的 socket channel功能。绑定到channel的socket，get/set socket的option，你必须调用socket()方法获取 peer socket。
+
+#### Binding and Option Configuration
+
+socket channel and socket APIs的违反直觉的组合存在是因为JDK1.4的时间不足。JDK引入java.nio.channels.NetworkChannel接口解决这个问题。
+
+NetworkChannel代表代表一个到network socketd channel.接口被DatagramChannel, ServerSocketChannel, SocketChannel, java.nio.channels.AsynchronousServerSocketChannel,java.nio.channels.AsynchronousSocketChannel 实现。
+
+Table 14-1 presents NetworkChannel’s methods.
+
+***Table 14-1. The Methods that Define a Network Channel***
+
+| Method                                                    | Description                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
+| NetworkChannel bind(SocketAddress local)                  | 绑定直到关闭                                                 |
+| SocketAddress getLocalAddress()                           | Return the socket address to which this channel’ s socket is bound. |
+| `T getOption<br/>(SocketOption name)`                     |                                                              |
+| `NetworkChannel<br/>setOption
+(SocketOption name,
+T value)` |                                                              |
+| `Set><br/>supportedOptions()`                             |                                                              |
+
+option是JDK添加的java.net.StandardSocketOptions，有比如：SO_RCVBUF (size of socket receive buffer) and TCP_NODELAY (disable the Nagle algorithm)。
+
+可以使用哪些option是根据该类的具体实现的。
+
+JDK7也更新了 DatagramChannel, ServerSocketChannel, and SocketChannel的几个方法:
+
+- DatagramChannel加了 SocketAddress getRemoteAddress()
+- ServerSocketChannel加了ServerSocketChannel bind(SocketAddress local, int backlog)
+- SocketChannel加了 SocketChannel shutdownInput() and SocketChannel shutdownOutput()。也有SocketAddress getRemoteAddress()
+
+Listing 7-7’s ChannelServer application had to invoke socket() when binding the channel’s socket to a local address, obtaining the local address, and obtaining the remote address. Listing 14-1 simplifies this code by making it NetworkChannel-compliant and using getRemoteAddress().
+
+***Listing 14-1. Demonstrating the Improved ServerSocketChannel***
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-25 14:48
+ */
+public class ChannelServer {
+    public static void main(String[] args) throws IOException {
+        System.out.println("Starting server..");
+        ServerSocketChannel ssc = ServerSocketChannel.open();
+        ssc.bind(new InetSocketAddress(9999));
+        ssc.configureBlocking(false);
+        String msg = "Local address: " + ssc.getLocalAddress();
+        ByteBuffer buffer = ByteBuffer.wrap(msg.getBytes());
+        while (true)
+        {
+            System.out.print(".");
+            SocketChannel sc = ssc.accept();
+            if (sc != null)
+            {
+                System.out.println();
+                System.out.println("Received connection from " +
+                        sc.getRemoteAddress());
+                buffer.rewind();
+                sc.write(buffer);
+                sc.close();
+            }
+            else
+                try
+                {
+                    Thread.sleep(1000);
+                }
+                catch (InterruptedException ie)
+                {
+                    assert false; // shouldn't happen
+                }
+        }
+    }
+}
+```
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.SocketOption;
+import java.net.StandardSocketOptions;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
+import java.util.Set;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-25 15:06
+ */
+public class ChannelClient {
+    public static void main(String[] args) throws IOException {
+        SocketChannel sc = SocketChannel.open();
+        Set<SocketOption<?>> socketOptions = sc.supportedOptions();
+        for (SocketOption<?> socketOption : socketOptions) {
+            System.out.println(socketOption);
+        }
+        System.out.println(sc.getOption(StandardSocketOptions.SO_RCVBUF));
+        sc.configureBlocking(false);
+        InetSocketAddress addr = new InetSocketAddress("localhost", 9999);
+        sc.connect(addr);
+        while (!sc.finishConnect()) {
+            System.out.println("waiting to finish connection");
+        }
+        ByteBuffer buffer = ByteBuffer.allocate(200);
+        while (sc.read(buffer) >= 0) {
+            buffer.flip();
+            while (buffer.hasRemaining())
+                System.out.print((char) buffer.get());
+            buffer.clear();
+        }
+        sc.close();
+    }
+}
+```
+
+#### Channel-Based Multicasting
+
+JDK 7 引入channel-based IP multicasting支持，传输IP的数据报文到group。数据来自一个源。
+
+D IP address类代表group，是一个 multicast group IPv4 address从224.0.0.1到 239.255.255.255。新的receiver (client)通过连接group ip加入到组。
+
+JDK 7 引入 java.nio.channels.MulticastChannel接口支持multicasting。继承NetworkChannel，被DatagramChannel实现。声明了join()方法和 close()方法。
+
+receiver调用 MembershipKey join(InetAddress group, NetworkInterface ni)
