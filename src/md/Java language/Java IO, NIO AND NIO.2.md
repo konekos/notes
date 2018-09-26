@@ -8332,4 +8332,378 @@ D IP address类代表group，是一个 multicast group IPv4 address从224.0.0.1�
 
 JDK 7 引入 java.nio.channels.MulticastChannel接口支持multicasting。继承NetworkChannel，被DatagramChannel实现。声明了join()方法和 close()方法。
 
-receiver调用 MembershipKey join(InetAddress group, NetworkInterface ni)
+receiver调用 MembershipKey join(InetAddress group, NetworkInterface ni)加入group。
+
+**Note**：network interface由类java.net. NetworkInterface实例描述，调用 NetworkInterface
+getByInetAddress(InetAddress addr)获取。
+
+调用 MembershipKey join(InetAddress group, NetworkInterface ni, InetAddress source)从source接收。
+
+**Note:**第一个join是类似有线电视，订阅packages of channels。第二个是订阅你感兴趣的。
+
+MembershipKey声明几个方法：
+
+- MembershipKey block(InetAddress source):屏蔽source
+- MulticastChannel channel():
+- void drop():
+- InetAddress group():
+- boolean isValid():
+- NetworkInterface networkInterface():
+- InetAddress sourceAddress():
+- MembershipKey unblock(InetAddress source):
+
+To create a multicast server or multicast client, there are three important items to keep in mind:
+
+- 指定 protocol family
+- 调用DatagramChannel’s DatagramChannel open(ProtocolFamily family)创建 datagram channel。
+- channel’s socket应该绑定到 wildcard address。
+- ...
+
+I’ve created multicast server and client applications that demonstrate channel-based multicasting. Listing 14-3 presents the server.
+
+***Listing 14-3. Demonstrating a Channel-Based Multicast Server***
+
+```java
+public class DatagramServer {
+    final static int PORT = 9999;
+
+    public static void main(String[] args) throws IOException {
+        NetworkInterface ni;
+        ni = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
+        DatagramChannel dc;
+        dc = DatagramChannel.open(StandardProtocolFamily.INET)
+                .setOption(StandardSocketOptions.SO_REUSEADDR, true)
+                .bind(new InetSocketAddress(PORT)).setOption(StandardSocketOptions.IP_MULTICAST_IF, ni);
+
+        InetAddress group = InetAddress.getByName("239.255.0.1");
+        int i = 0;
+        while (true)
+        {
+            ByteBuffer bb = ByteBuffer.wrap(("line " + i).getBytes());
+            dc.send(bb, new InetSocketAddress(group, PORT));
+            i++;
+        }
+
+    }
+}
+```
+
+```java
+import java.io.IOException;
+import java.net.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.MembershipKey;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-26 10:23
+ */
+public class DatagramClient {
+    final static int PORT = 9999;
+
+    public static void main(String[] args) throws IOException {
+        NetworkInterface ni;
+        ni = NetworkInterface.getByInetAddress(InetAddress.getLocalHost());
+        DatagramChannel dc;
+        dc = DatagramChannel.open(StandardProtocolFamily.INET)
+                .setOption(StandardSocketOptions.SO_REUSEADDR, true).bind(new InetSocketAddress(PORT))
+                .setOption(StandardSocketOptions.IP_MULTICAST_IF, ni);
+        InetAddress group = InetAddress.getByName("239.255.0.1");
+        MembershipKey membershipKey = dc.join(group, ni);
+
+        ByteBuffer response = ByteBuffer.allocate(50);
+        while (true) {
+            dc.receive(response);
+            response.flip();
+            while (response.hasRemaining()) {
+                System.out.print((char) response.get());
+            }
+            System.out.println();
+            response.clear();
+        }
+    }
+}
+```
+
+## Appendix B  Sockets and Network Interfaces
+
+7章节引入peer socket概念，是一个关联一个channel的socket。14章引入network interface的概念。附录介绍sockets, network interfaces, and 和这些功能交互的APIs，
+
+**Note**:网络是一组相互连接的节点(诸如平板电脑之类的计算设备，以及扫描仪或激光打印机等外围设备)，可在网络用户之间共享。网络在节点之间使用 TCP/IP交流。Transmission Control Protocol (TCP)，是一种面向连接的协议; User Datagram Protocol (UDP)，是无连接协议；Internet Protocol (IP)，是基础协议，TCP和UDP通过他执行任务。
+
+ java.net package提供了进程间TCP/IP的类型支持。
+
+### Sockets
+
+两个进程之间sockets方式交流，sockets是两个进程之间communications link的endpoints。每个endpoint IP代表host，port代表host的端口号
+
+```**P ADDRESSES AND PORT NUMBERS。**·````
+
+IP地址是一个32位或128位的无符号整数，惟一地标识一个网络主机或其他网络节点（例如，一个路由器）。
+
+通常使用32bit IP，一个32位的IP地址通常被称为 Internet Protocol Version 4 (IPv4)地址。
+
+也通常用128-bit IP address，8个16-bit integer。每个组件都是一个十六进制整数，从0到FFFF，通过冒号与下一个组件分离。such as 1080:0:0:0:8:800:200C:417A。A 128-bit IP address is often referred to as an Internet Protocol Version 6 (IPv6) address 。一个端口号是一个16位的整数，它唯一地标识一个进程，它是消息的最终来源或接收者。小于1024的端口号是为标准流程保留的。例如，端口25传统上标识了简单的邮件发送电子邮件的传输协议（SMTP）过程，尽管端口号587已经在很大程度上淘汰了这个旧的端口号。
+
+一个进程写message（字节序列）到socket。底层平台的网络管理软件部分将消息分解成一系列数据包（可寻址的消息块，通常称为IP数据报），把它们转发到另一个进程的socket，将它们重新组合为原始信息进行处理。
+
+![1537933904419](E:\studydyup\notes\src\pic\%5CUsers%5CJudy%5CAppData%5CRoaming%5CTypora%5Ctypora-user-images%5C1537933904419.png)
+
+在图B-1的上下文中，假设进程A想要发送一条消息给进程B。A发消息到它的socket，附有B的目标socket地址。主机A的network management software（通常被称为协议栈）获得message，将其简化为一系列信息包，每个包包含目标主机的IP地址和端口号。然后 network management software通过A主机的 Network Interface Card（NIC）到主机B。
+
+**Note：**网卡（NIC）的各种网络接口是计算机和网络之间的连接。
+
+B主机的协议栈通过NIC接收包并重组为原始message（数据包可能无序），然后通过socket对进程B可用。当进程B与进程a通信时，这个场景会发生逆转。
+
+网络管理软件使用TCP在两个主机之间创建一个正在进行的对话，其中消息被来回发送。在此对话发生之前，这些主机之间建立了连接。在建立连接之后，TCP进入一个模式，在这个模式中，它发送消息数据包并等待它们正确到达的应答（或者由于某个网络问题而没有到达，超时过期）。这种模式重复并保证了可靠的连接。有关此模式的详细信息，请访问http://en.wikipedia.org/wiki/tcpreceivewindowflowcontrol。
+
+因为建立一个连接需要时间，发送数据包也需要时间（因为有必要接收应答确认和超时），TCP是缓慢的。另一方面，UDP不需要连接和包确认，它的速度要快得多。缺点是UDP不可靠，因为没有确认（虽然UDP使用校验和来验证数据是否正确，但并不能保证包的交付、排序或对重复数据包的保护）。此外，UDP仅限于单包会话。
+
+ java.net包提供Socket, ServerSocket和其他Socket后缀的类用于执行执行基于tcp的或基于udp的通信。在研究这些类之前，您需要了解socket addresses和socket options。
+
+### Socket Addresses
+
+一个Socket后缀类的实例和一个socket address关联，由IP和端口组成。这些类通常依赖InetAddress类代表socket address的IPv4 or IPv6 address portion；端口号是单独表示的。
+
+**Note**： InetAddress依赖Inet4Address子类代表IPv4 address和Inet6Address代表IPv6 address。
+
+InetAddress声明了几个方法获取InetAddress实例。这些方法包括：
+
+- InetAddress[] getAllByName(String host) 返回InetAddresses的数组，储存了关联HOST的IP addresses。您可以将一个域名（如“tutortutor.ca”）或IP地址（如“70.33.247.10”）传递给这个参数。 (To learn about domain names, check out Wikipedia’s “Domain name” entry [http://en.wikipedia.org/wiki/Domain_name].) 传null获取的InetAddress实例储存了 loopback interface的IP address（一个基于软件的网络接口，输出的数据作为输入的数据返回）。当无法找到指定主机的IP地址时，或者为全局IPv6地址指定范围标识符时抛出UnknownHostException。
+- InetAddress getByAddress(byte[] addr) 返回给定 raw IP address的InetAddress对象。数组遵循网络字节顺序（最重要的字节是第一位的）。 IPv4必须4字节，IPv6必须16字节。
+- InetAddress getByAddress(String hostName, byte[] ipAddress)
+- InetAddress getByName(String host) 返回一个InetAddress实例基于host，host可能是个machine name（such as “tutortutor.ca”）或者它的IP地址的文本表示。
+- InetAddress getLocalHost() 返回 local host。 127.0.0.1 (IPv4) or ::1 (IPv6)
+
+获得InetAddress对象后，调用getAddress()返回raw IP，以及boolean isLoopbackAddress()，代表是不是 loopback address。
+
+Java 1.4 引入抽象类SocketAddress，代表with no protocol attachment的socket address（这个类的创建者可能已经预料到Java最终会支持低级别的通信协议而不是广受欢迎的互联网协议）。
+
+SocketAddress被子类InetSocketAddress继承，把socket address表示为 IP address and a port number。它还可以表示主机名和端口号，并尝试解析主机名。
+
+调用InetSocketAddress(InetAddress addr, int port)获取InetSocketAddress实例。然后调用 InetAddress getAddress() and int getPort() 等方法。
+
+### Socket Options
+
+Socket后缀类的实例共享套接字选项的概念，是配置套接字行为的参数。Socket options是声明在SocketOptions接口的常数：
+
+- IP_MULTICAST_IF:用于确定组播（multicast）的网络接口。选项值类型为`InetAddress`
+
+- IP_MULTICAST_IF2:同#IP_MULTICAST_IF，但是可以设IPV4或IPV6地址。
+
+- IP_MULTICAST_LOOP:这个选项用于组播。其中“local loopback”的意思是组播包会同时发送给自己（即发送方可以收到自己发出去的数据）。
+
+- IP_TOS:用于设置IP包TOS部分的值。UDP可以在bind之后任意更改设置，TCP在bind前设置。 
+
+- SO_BINDADDR:
+
+  - 只能通过`getOption`读取，不能通过`setOption`设置。因为地址绑定发生在Socket初始化的时候，后面就不能更改了。
+  - 默认值为`INADDR_ANY`。如果用于ServerSocket，即在“multi-homed host（同一主机上有多个网络地址）”的情况下，socket接收所有网络接口发过来的数据。设置了指定的Address，那么就接收指定接口的数据；如果用于Socket，设置了指定的Address表示向该地址发送数据。
+  - 该选项值的类型为`InetAddress`
+
+- SO_BROADCAST:决定了socket是否可以发广播。仅用于支持广播的网络。
+
+- SO_KEEPALIVE:启用时，当tcp连接中没有数据流动超过2小时时，系统主动发送一个keepalive探寻包（probe）给对方，对方必须响应这个包。收到ack的时候表示连接正常。满足以下条件时视为连接关闭：1、对方返回了RST；2、对方没有任何返回。
+
+- SO_LINGER:设置了一个大于0的值给`SO_LINGER`，表示当关闭这个TCP socket时，如果发送队列里还有数据，那么**堵塞**等待一段时间（ linger interval）。如果超时了，那么强制关闭连接。设置等于0 的值表示直接强制关闭连接。超时上限为65535。
+
+- SO_OOBINLINE:该选项默认disable，当enable时，表示urgent data直接在接收方read()操作中返回（和普通数据混在一起）， 否则接收方直接忽略该数据。
+
+- SO_RCVBUF: 设置`SO_RCVBUF`表示向内核建议socket接收缓冲区的大小。获取`SO_RCVBUF`一定返回实际接收缓冲区的大小。单位字节。
+
+- SO_REUSEADDR:仅用于`DatagramSocket`（UDP）。一般来说，一个端口释放后会等待两分钟之后才能再被使用，SO_REUSEADDR是让端口释放后立即就可以被再次使用。
+
+- SO_SNDBUF:设置`SO_SNDBUF`表示向内核建议socket发送缓冲区的大小。获取`SO_SNDBUF`一定返回实际发送缓冲区的大小。单位字节。
+
+- SO_TIMEOUT:`SO_TIMEOUT`选项用于对read()操作设置timeout，单位为毫秒。当timeout发生时，会抛出InterruptedIOException。设置不大于0的值会令read()操作永远堵塞。
+
+- TCP_NODELAY:纳格算法（Nagle's algorithm）的工作方式是合并(coalescing)一定数量的输出资料后一次送出。 当某application不断地发送小单位的数据时，tcp会缓存一定量的数据再进行发送。具体算法如下所示：
+
+  ```
+  if there is new data to send
+    if the window size >= MSS and available data is >= MSS
+      send complete MSS segment now
+    else
+      if there is unconfirmed data still in the pipe
+        enqueue data in the buffer until an acknowledge is received
+      else
+        send data immediately
+      end if
+    end if
+  end if
+  ```
+
+  注：按照算法，是尚未收到前一次ack或未达到指定累积大小前缓存接下来的数据。**TCP专用** 综上，`TCP_NODELAY`如果为true，那么数据就不进行缓存（等待上一个ack或达到指定累积大小）。
+
+SocketOptions声明了get set方法。：
+
+- void setOption(int optID, Object value)
+- Object getOption(int optID)
+
+不能直接调用，使用Socket后缀类的线程安全方法。
+
+### Socket and ServerSocket
+
+Socket and ServerSocket classes支持客户端进程之间（比如在平板电脑上运行的应用程序）和服务端进程之间的基于tcp的通信。因为Socket和java.io.InputStream and java.io.OutputStream类关联，基于Socket类的sockets通常被称为stream sockets。
+
+Socket支持客户端sockets的创建。下面有其中2个构造器：
+
+- Socket(InetAddress dstAddress, int dstPort) 创建stream socket，连接到指定IP的端口。端口0 through 65535。
+- Socket(String dstName, int dstPort)
+
+Socket实例创建后，在remote host socket address的连接建立前，它被绑定到任意的local host socket address。*Binding*使 client socket address对 server socket可用，然后server进程可以通过server socket和客户端进程交流。
+
+Socket提供额外构造器，比如Socket()未绑定，Socket(Proxy proxy)未连接。要使用这些，必须绑定到本地 socket addresses，调用void bind(SocketAddress localAddr)，然后必须连接，调用 connect()方法。
+
+**Note**：proxy是一个host，为了安全目的，处于内部网和Internet之间。 Proxy settings通过Proxy类的实例来表示，帮助套接字通过代理进行通信。
+
+另一个构造器Socket(InetAddress dstAddress, int dstPort, InetAddress localAddr, int localPort)，指定local host socket address，然后连接指定IP端口。
+
+创建实例后，可能在实例上调用 bind() and connect()，调用Socket’s InputStream getInputStream() and OutputStream getOutputStream()用于读写。不需要I/O的时候调用Socket’s void close()关闭socket。
+
+下面的例子演示了如何在本地主机上创建一个绑定到9999的socket，然后访问它的输入和输出流——为了简洁起见，忽略了异常：
+
+```java
+Socket socket = new Socket("localhost", 9999);
+InputStream is = socket.getInputStream();
+OutputStream os = socket.getOutputStream();
+// Do some work with the socket.
+socket.close();
+```
+
+ServerSocket支持服务端sockets的创建，4个构造器：
+
+- ServerSocket() 创建未绑定的server socket。你可以把它绑定到指定socket address。Binding使server socket address对客户端socket可用。
+- ServerSocket(int port)创建server socket绑定到指定端口和与主机的一个nic相关联的IP地址。传0会选择任意的端口。getLocalPort()获取。来自客户端的传入的连接请求的最大队列长度为50。queue满了，连接被拒绝。
+- ServerSocket(int port, int backlog) 设置传入连接的maximum queue length
+- ServerSocket(int port, int backlog, InetAddress localAddress) 指定 IP address。多网卡时有用。
+
+ server socket创建后，server应用开始循环，先调用Socket accept()监听连接请求。然后通信，最后关闭。
+
+**Note**： ServerSocket声明 close()来关闭server socket 。应用终止会自动关闭未关闭的socket。
+
+下面的例子演示了如何创建一个服务器套接字，它被绑定到当前主机上的9999端口，监听传入的连接请求，返回它们的套接字，在这些套接字上执行工作，并关闭socket;为了简洁起见，忽略了异常：
+
+```java
+ServerSocket ss = new ServerSocket(9999);
+while (true)
+{
+ Socket socket = ss.accept();
+ // obtain socket input/output streams and communicate with socket
+ socket.close();
+}
+
+```
+
+accept()方法调用在连接可用之前阻塞，然后返回 Socket object和客户端通信。
+
+这个例子假设套接字通信发生在服务器应用程序的主线程上，当处理需要时间来执行时，因为服务器响应时间对传入的连接请求减少是一个问题。
+
+为了提高响应时间，通常需要与worker线程上的socket进行通信。如下面的例子所示：
+
+```java
+ServerSocket ss = new ServerSocket(9999);
+while (true)
+{
+ final Socket s = ss.accept();
+ new Thread(new Runnable()
+ {
+ @Override
+ public void run()
+ {
+ // obtain socket input/output streams and
+ // communicate with socket
+ try { s.close(); } catch (IOException ioe) {}
+ }
+ }).start();
+}
+```
+
+每次连接请求到来，accept()返回Socket实例，创建一个线程，在线程上访问socket和使用socket通信。
+
+I’ve created EchoClient and EchoServer applications that demonstrate Socket and ServerSocket. Listing B-1 presents EchoClient’s source code.
+
+***Listing B-1. Echoing Data to and Receiving It Back from a Server***
+
+```
+import java.io.*;
+import java.net.Inet4Address;
+import java.net.Socket;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-26 17:28
+ */
+public class EchoClient {
+    public static void main(String[] args) {
+        try {
+            Socket socket = new Socket(Inet4Address.getLocalHost(), 34343);
+            OutputStream os = socket.getOutputStream();
+            OutputStreamWriter writer = new OutputStreamWriter(os);
+            PrintWriter pw = new PrintWriter(writer);
+            pw.println("66666");
+            pw.flush();
+            InputStream is = socket.getInputStream();
+            InputStreamReader isr = new InputStreamReader(is);
+            BufferedReader br = new BufferedReader(isr);
+            System.out.println(br.readLine());
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+**Note**：长时间运行的应用要显示close socket。
+
+server
+
+***Listing B-2. Receiving Data from and Echoing It Back to a Client***
+
+```java
+import java.io.*;
+import java.net.Inet4Address;
+import java.net.ServerSocket;
+import java.net.Socket;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-26 17:37
+ */
+public class EchoServer {
+    public static void main(String[] args) throws IOException {
+        System.out.println("Starting echo server...");
+
+
+        ServerSocket ss = new ServerSocket(34343, 50, Inet4Address.getLocalHost());
+        while (true) {
+            Socket s = ss.accept();
+
+            try {
+                InputStream is = s.getInputStream();
+                InputStreamReader isr = new InputStreamReader(is);
+                BufferedReader br = new BufferedReader(isr);
+                String msg = br.readLine();
+                System.out.println(msg);
+                OutputStream os = s.getOutputStream();
+                OutputStreamWriter osw = new OutputStreamWriter(os);
+                PrintWriter writer = new PrintWriter(osw);
+                writer.println(msg);
+                writer.flush();
+            } catch (IOException e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    s.close();
+                } catch (IOException e) {
+                    assert false;//should not happen in this context
+                }
+            }
+        }
+    }
+}
+```
+
+### DatagramSocket and MulticastSocket
+
