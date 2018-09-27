@@ -8707,3 +8707,188 @@ public class EchoServer {
 
 ### DatagramSocket and MulticastSocket
 
+ DatagramSocket and MulticastSocket类让你执行UDP通信。
+
+DatagramPacket构造：
+
+```java
+byte[] buffer = new byte[100];
+DatagramPacket dgp = new DatagramPacket(buffer, buffer.length);
+```
+
+DatagramSocket描述了用于客户端或者服务端UDP连接的socket。
+
+Listing B-3 demonstrates DatagramPacket and DatagramSocket in a server
+context.
+
+***Listing B-3. Receiving Datagram Packets from and Echoing Them Back to ClientsListing B-3. Receiving Datagram Packets from and Echoing Them Back to Clients***
+
+```java
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.SocketException;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-27 10:46
+ */
+public class DGServer {
+    final static int PORT = 10000;
+    public static void main(String[] args) throws SocketException {
+        System.out.println("Server is starting");
+        DatagramSocket dgs = new DatagramSocket(PORT);
+
+        try {
+            System.out.println("Send buffer size = " +
+                    dgs.getSendBufferSize());
+            System.out.println("Receive buffer size = " +
+                    dgs.getReceiveBufferSize());
+            byte[] data = new byte[50];
+            DatagramPacket dgp = new DatagramPacket(data, data.length);
+            while (true) {
+                dgs.receive(dgp);
+                System.out.println(new String(data));
+                dgs.send(dgp);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+
+
+> 虽然可以调用void setReceiveBufferSize(int size) and void setSendBufferSize(int size)挑整buffer size。来提高性能。但对于UDP有一个实际的限制。可以被发送接收的UDP包最大为65,507字节，在IPV4，它来自于从65,535中减去8字节的UDP头和20字节的IP头值
+
+Listing B-4 demonstrates DatagramPacket and DatagramSocket in a client
+context.
+***Listing B-4. Sending a Datagram Packet to and Receiving It Back from a Server***
+
+```java
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.DatagramSocket;
+import java.net.InetAddress;
+import java.net.SocketException;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-27 11:06
+ */
+public class DGClient {
+    final static int PORT = 10001;
+    final static String ADDR = "localhost";
+    public static void main(String[] args) throws SocketException {
+        System.out.println("client is starting");
+        DatagramSocket dgs = new DatagramSocket();
+
+        try {
+            byte[] buffer;
+            buffer = "Send me a datagram".getBytes();
+
+            InetAddress ia = InetAddress.getByName(ADDR);
+            DatagramPacket dgp = new DatagramPacket(buffer, buffer.length, InetAddress.getLocalHost(), PORT);
+            dgs.send(dgp);
+
+            byte[] buffer2 = new byte[100];
+            dgp = new DatagramPacket(buffer2, buffer.length, InetAddress.getLocalHost(), PORT);
+            dgs.receive(dgp);
+            System.out.println(new String(buffer2));
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+MulticastSocket类描述了基于UDP的多播会话。
+
+
+
+```
+							WHAT IS MULTICASTING?
+前面的例子已经演示了单播，当服务器向单个客户端发送一条消息时发生。然而，也有可能向多个客户广播相同的信息。
+
+
+IPv4 addresses 224.0.0.1 to 239.255.255.255 (inclusive) are reserved for use as multicast
+group addresses.
+```
+
+Listing B-5 presents a multicasting server.
+***Listing B-5. Multicasting Datagram Packets***
+
+```java
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-27 13:49
+ */
+public class MCServer {
+    final static int port = 9999;
+
+    public static void main(String[] args) {
+        try {
+            MulticastSocket multicastSocket = new MulticastSocket();
+            InetAddress group = InetAddress.getByName("231.0.0.1");
+            byte[] dummy = new byte[0];
+            DatagramPacket dp = new DatagramPacket(dummy, 0, group, port);
+            int i = 0;
+            while (true) {
+                byte[] buffer = ("line " + i).getBytes();
+                dp.setData(buffer);
+                dp.setLength(buffer.length);
+                multicastSocket.send(dp);
+                i++;
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+```java
+import java.io.IOException;
+import java.net.DatagramPacket;
+import java.net.InetAddress;
+import java.net.MulticastSocket;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-27 13:54
+ */
+public class MCClient {
+
+    final static int port = 9999;
+
+    public static void main(String[] args) {
+        try {
+            MulticastSocket mcs = new MulticastSocket(port);
+            InetAddress group = InetAddress.getByName("231.0.0.1");
+            mcs.joinGroup(group);
+            for (int i = 0; i < 10; i++) {
+                byte[] buffer = new byte[256];
+                DatagramPacket dgp = new DatagramPacket(buffer, buffer.length);
+                mcs.receive(dgp);
+                byte[] buffer2 = new byte[dgp.getLength()];
+                System.arraycopy(dgp.getData(), 0, buffer2, 0, dgp.getLength());
+                System.out.println(new String(buffer2));
+            }
+            mcs.leaveGroup(group);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+
+    }
+}
+```
+
+### Network Interfaces
+
+略
