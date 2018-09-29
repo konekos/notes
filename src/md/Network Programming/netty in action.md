@@ -755,3 +755,329 @@ ChannelOutboundHandle 都扩展自 ChannelHandler，但是 Netty 能区分 Chann
 
 #### 3.2.4 编码器和解码器
 
+当你通过 Netty 发送或者接收一个消息的时候，就将会发生一次数据转换。入站消息会被解
+码；也就是说，从字节转换为另一种格式，通常是一个 Java 对象。如果是出站消息，则会发生
+相反方向的转换：它将从它的当前格式被编码为字节。这两种方向的转换的原因很简单：网络数
+据总是一系列的字节。
+
+对应于特定的需要，Netty 为编码器和解码器提供了不同类型的抽象类。例如，你的应用程
+序可能使用了一种中间格式，而不需要立即将消息转换成字节。你将仍然需要一个编码器，但是
+它将派生自一个不同的超类。为了确定合适的编码器类型，你可以应用一个简单的命名约定。
+
+通常来说，这些基类的名称将类似于 ByteToMessageDecoder 或 MessageToByteEncoder。对于特殊的类型，你可能会发现类似于
+ProtobufEncoder 和 ProtobufDecoder
+这样的名称——预置的用来支持 Google 的 Protocol Buffers。
+
+严格地说，其他的处理器也可以完成编码器和解码器的功能。但是，正如有用来简化
+ChannelHandler 的创建的适配器类一样，所有由 Netty 提供的编码器/解码器适配器类都实现
+了 ChannelOutboundHandler 或者 ChannelInboundHandler 接口。
+
+你将会发现对于入站数据来说，channelRead 方法/事件已经被重写了。对于每个从入站
+Channel 读取的消息，这个方法都将会被调用。随后，它将调用由预置解码器所提供的 decode()
+方法，并将已解码的字节转发给 ChannelPipeline 中的下一个 ChannelInboundHandler。
+
+出站消息的模式是相反方向的：编码器将消息转换为字节，并将它们转发给下一个
+ChannelOutboundHandler。
+
+#### 3.2.5 抽象类 SimpleChannelInboundHandler
+
+​	最常见的情况是，你的应用程序会利用一个 ChannelHandler 来接收解码消息，并对该数据应用业务逻辑。要创建一个这样的 ChannelHandler，你只需要扩展基类SimpleChannelInboundHandler\<T\>，其中T 是你要处理的消息的 Java 类型 。在这个 ChannelHandler 中，你将需要重写基类的一个或者多个方法，并且获取一个到 ChannelHandlerContext 的引用，这个引用将作为输入参数传递给 ChannelHandler 的所有方法。
+
+​	在这种类型的 ChannelHandler 中，最重要的方法是 channelRead0(ChannelHandlerContext,T)。除了要求不要阻塞当前的I/O 线程之外，其具体实现完全取决于你。我们稍后将对这一主题进行更多的说明。
+
+### 3.3 引导
+
+Netty 的引导类为应用程序的网络层配置提供了容器，这涉及将一个进程绑定到某个指定的
+端口，或者将一个进程连接到另一个运行在某个指定主机的指定端口上的进程。
+
+通常来说，我们把前面的用例称作引导一个服务器，后面的用例称作引导一个客户端。虽然
+这个术语简单方便，但是它略微掩盖了一个重要的事实，即“服务器”和“客户端”实际上表示
+了不同的网络行为；换句话说，是监听传入的连接还是建立到一个或者多个进程的连接。
+
+>面向连接的协议 请记住，严格来说，“连接”这个术语仅适用于面向连接的协议，如 TCP，其
+>保证了两个连接端点之间消息的有序传递。
+
+因此，有两种类型的引导：一种用于客户端（简单地称为 Bootstrap），而另一种
+（ServerBootstrap）用于服务器。无论你的应用程序使用哪种协议或者处理哪种类型的数据，
+唯一决定它使用哪种引导类的是它是作为一个客户端还是作为一个服务器。表 3-1 比较了这两种
+类型的引导类。
+
+***表 3-1 比较 Bootstrap 类***
+
+| 类 别                 | Bootstrap            | ServerBootstrap    |
+| --------------------- | -------------------- | ------------------ |
+| 网络编程中的作用      | 连接到远程主机和端口 | 绑定到一个本地端口 |
+| EventLoopGroup 的数目 | 1                    | 2                  |
+
+这两种类型的引导类之间的第一个区别已经讨论过了：ServerBootstrap 将绑定到一个
+端口，因为服务器必须要监听连接，而 Bootstrap 则是由想要连接到远程节点的客户端应用程
+序所使用的。
+
+第二个区别可能更加明显。引导一个客户端只需要一个 EventLoopGroup，但是一个
+ServerBootstrap 则需要两个（也可以是同一个实例）。为什么呢？
+
+因为服务器需要两组不同的 Channel。第一组将只包含一个 ServerChannel，代表服务
+器自身的已绑定到某个本地端口的正在监听的套接字。而第二组将包含所有已创建的用来处理传
+入客户端连接（对于每个服务器已经接受的连接都有一个）的 Channel。图 3-4 说明了这个模
+型，并且展示了为何需要两个不同的 EventLoopGroup。
+
+![1538205662276](E:\studydyup\notes\src\pic\1538205662276.png)
+
+与 ServerChannel 相关联的 EventLoopGroup 将分配一个负责为传入连接请求创建
+Channel 的 EventLoop。一旦连接被接受，第二个 EventLoopGroup 就会给它的 Channel
+分配一个 EventLoop。
+
+### 3.4 小结
+
+在本章中，我们从技术和体系结构这两个角度探讨了理解 Netty 的重要性。我们也更加详
+细地重新审视了之前引入的一些概念和组件，特别是 ChannelHandler、ChannelPipeline
+和引导。
+特别地，我们讨论了 ChannelHandler 类的层次结构，并介绍了编码器和解码器，描述了
+它们在数据和网络字节格式之间来回转换的互补功能。
+下面的许多章节都将致力于深入研究这些组件，而这里所呈现的概览应该有助于你对整体
+的把控。
+下一章将探索 Netty 所提供的不同类型的传输，以及如何选择一个最适合于你的应用程序的
+传输。
+
+## 第 4 章 传输
+
+>本章主要内容
+> OIO——阻塞传输
+> NIO——异步传输
+> Local——JVM 内部的异步通信
+> Embedded——测试你的 ChannelHandler
+
+流经网络的数据总是具有相同的类型：字节。这些字节是如何流动的主要取决于我们所说的
+网络传输—一个帮助我们抽象底层数据传输机制的概念。用户并不关心这些细节；他们只想确
+保他们的字节被可靠地发送和接收。
+
+如果你有 Java 网络编程的经验，那么你可能已经发现，在某些时候，你需要支撑比预期多
+很多的并发连接。如果你随后尝试从阻塞传输切换到非阻塞传输，那么你可能会因为这两种网络
+API 的截然不同而遇到问题。
+
+然而，Netty 为它所有的传输实现提供了一个通用 API，这使得这种转换比你直接使用 JDK
+所能够达到的简单得多。所产生的代码不会被实现的细节所污染，而你也不需要在你的整个代码
+库上进行广泛的重构。简而言之，你可以将时间花在其他更有成效的事情上。
+
+在本章中，我们将学习这个通用 API，并通过和 JDK 的对比来证明它极其简单易用。我们
+将阐述 Netty 自带的不同传输实现，以及它们各自适用的场景。有了这些信息，你会发现选择最
+适合于你的应用程序的选项将是直截了当的
+
+本章的唯一前提是 Java 编程语言的相关知识。有网络框架或者网络编程相关的经验更好，
+但不是必需的。
+
+我们先来看一看传输在现实世界中是如何工作的。
+
+### 4.1 案例研究：传输迁移
+
+我们将从一个应用程序开始我们对传输的学习，这个应用程序只简单地接受连接，向客户端
+写“Hi!”，然后关闭连接。
+
+#### 4.1.1 不通过 Netty 使用 OIO 和 NIO
+
+我们将介绍仅使用了 JDK API 的应用程序的阻塞（OIO）版本和异步（NIO）版本。代码清
+单 4-1 展示了其阻塞版本的实现。如果你曾享受过使用 JDK 进行网络编程的乐趣，那么这段代码
+将唤起你美好的回忆。
+
+***代码清单 4-1 未使用 Netty 的阻塞网络编程***
+
+```java
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.nio.charset.Charset;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-29 15:43
+ */
+public class PlainOioServer {
+    public void serve(int port) throws IOException {
+        //绑定
+        final ServerSocket socket = new ServerSocket(port);
+
+        try {
+            //noinspection InfiniteLoopStatement
+            for (; ; ) {
+                //接收连接
+                final Socket clientSocket = socket.accept();
+                System.out.println("Accepted connection from " + clientSocket);
+
+                new Thread(() -> {
+                    OutputStream out;
+                    try {
+                        out = clientSocket.getOutputStream();
+                        out.write("Hi\r\n".getBytes(Charset.forName("UTF-8")));
+                        out.flush();
+                        clientSocket.close();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }finally {
+                        try {
+                            clientSocket.close();
+                        } catch (IOException e) {
+                            //ignore on close
+                        }
+                    }
+                }).start();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+}
+```
+
+其非阻塞版本如代码清单 4-2 所示。
+
+***代码清单 4-2 未使用 Netty 的异步网络编程***
+
+```java
+import java.io.IOException;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.nio.ByteBuffer;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
+import java.util.Iterator;
+import java.util.Set;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-29 16:28
+ */
+public class PlainNioServer {
+    public void serve(int port) throws IOException {
+        ServerSocketChannel serverChannel = ServerSocketChannel.open();
+        serverChannel.configureBlocking(false);
+        ServerSocket serverSocket = serverChannel.socket();
+        //绑定
+        serverSocket.bind(new InetSocketAddress(port));
+        //打开Selector处理channel
+        Selector selector = Selector.open();
+        //将ServerSocketChannel注册到selector以接受连接
+        serverChannel.register(selector, SelectionKey.OP_ACCEPT);
+        final ByteBuffer msg = ByteBuffer.wrap("Hi\r\n".getBytes());
+
+        for (; ; ) {
+            try {
+                //等待需要处理的新事件；在事件传入前阻塞
+                selector.select();
+            } catch (IOException e) {
+                e.printStackTrace();
+                //handle exception
+                break;
+            }
+            //获取接收事件的所有selectionKey实例
+            Set<SelectionKey> readyKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iterator = readyKeys.iterator();
+            while (iterator.hasNext()) {
+                SelectionKey key = iterator.next();
+                iterator.remove();
+
+                try {
+                    //检查事件是否是一个新的就绪的可接受的连接
+                    if (key.isAcceptable()) {
+                        ServerSocketChannel server = (ServerSocketChannel) key.channel();
+                        SocketChannel client = server.accept();
+                        client.configureBlocking(false);
+                        //接受客户端并注册到selector
+                        client.register(selector, SelectionKey.OP_WRITE | SelectionKey.OP_READ, msg.duplicate());
+                        System.out.println("Accepted connection from " + client);
+                    }
+                    //检查套接字是否准备好写数据
+                    if (key.isWritable()) {
+                        SocketChannel client = (SocketChannel) key.channel();
+                        ByteBuffer buffer = (ByteBuffer) key.attachment();
+                        while (buffer.hasRemaining()) {
+                            //数据写到已连接的客户端
+                            if (client.write(buffer) == 0) {
+                                break;
+                            }
+                        }
+                        //关闭连接
+                        client.close();
+                    }
+                } catch (IOException e) {
+                    key.cancel();
+                    try {
+                        key.channel().close();
+                    } catch (IOException e1) {
+                        //ignore on close
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+如同你所看到的，虽然这段代码所做的事情与之前的版本完全相同，但是代码却截然不同。
+如果为了用于非阻塞 I/O 而重新实现这个简单的应用程序，都需要一次完全的重写的话，那么不
+难想象，移植真正复杂的应用程序需要付出什么样的努力。
+鉴于此，让我们来看看使用 Netty 实现该应用程序将会是什么样子吧。
+
+#### 4.1.2 通过 Netty 使用 OIO 和 NIO
+
+我们将先编写这个应用程序的另一个阻塞版本，这次我们将使用 Netty 框架，如代码清单 4-3
+所示。
+
+***代码清单 4-3 使用 Netty 的阻塞网络处理***
+
+```java
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
+import io.netty.channel.oio.OioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.oio.OioServerSocketChannel;
+import io.netty.util.CharsetUtil;
+
+import java.net.InetSocketAddress;
+
+/**
+ * @author @Jasu
+ * @date 2018-09-29 17:59
+ */
+public class NettyOioServer {
+    public void server(int port) throws Exception {
+        final ByteBuf buf = Unpooled.unreleasableBuffer(Unpooled.copiedBuffer("Hi\r\n", CharsetUtil.UTF_8));
+        EventLoopGroup group = new OioEventLoopGroup();
+
+        try {
+            //创建ServerBootstrap
+            ServerBootstrap b = new ServerBootstrap();
+            b.group(group)
+                    //使用旧的OioEventLoopGroup以允许阻塞模式
+                    .channel(OioServerSocketChannel.class)
+                    .localAddress(new InetSocketAddress(port))
+                    //指定ChannelInitializer，每个被接受的连接都调用它
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) throws Exception {
+                            //添加一个ChannelInboundHandlerAdapter以处理事件
+                            ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+                                @Override
+                                public void channelActive(ChannelHandlerContext ctx) throws Exception {
+                                    //消息写到客户端，添加ChannelFutureListener，消息写完就关闭连接
+                                    ctx.writeAndFlush(buf.duplicate()).addListener(ChannelFutureListener.CLOSE);
+                                }
+                            });
+                        }
+                    });
+            //绑定服务器以接受连接
+            ChannelFuture f = b.bind().sync();
+            f.channel().closeFuture().sync();
+        } finally {
+            //释放资源
+            group.shutdownGracefully().sync();
+        }
+    }
+}
+```
+
+接下来，我们使用 Netty 和非阻塞 I/O 来实现同样的逻辑。
