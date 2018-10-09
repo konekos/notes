@@ -1081,3 +1081,88 @@ public class NettyOioServer {
 ```
 
 接下来，我们使用 Netty 和非阻塞 I/O 来实现同样的逻辑。
+
+#### 4.1.3 非阻塞的 Netty 版本
+
+代码清单 4-4 和代码清单 4-3 几乎一模一样，除了高亮显示的那两行。这就是从阻塞（OIO）
+传输切换到非阻塞（NIO）传输需要做的所有变更。
+
+***代码清单 4-4 使用 Netty 的异步网络处理***
+
+```java
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.*;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
+import io.netty.util.CharsetUtil;
+
+import java.net.InetSocketAddress;
+
+/**
+ * @author @Jasu
+ * @date 2018-10-08 15:26
+ */
+public class NettyNioServer {
+    public void server(int port) throws InterruptedException {
+        final ByteBuf buf = Unpooled.copiedBuffer("Hi\r\n", CharsetUtil.UTF_8);
+
+        EventLoopGroup group = new NioEventLoopGroup();
+
+        try {
+            ServerBootstrap b = new ServerBootstrap();
+            b.group(group).channel(NioServerSocketChannel.class)
+                    .localAddress(new InetSocketAddress(port))
+                    .childHandler(new ChannelInitializer<SocketChannel>() {
+                        @Override
+                        protected void initChannel(SocketChannel ch) throws Exception {
+                            ch.pipeline().addLast(new ChannelInboundHandlerAdapter() {
+                                @Override
+                                public void channelActive(ChannelHandlerContext ctx) throws Exception {
+                                    ctx.writeAndFlush(buf.duplicate())
+                                            .addListener(ChannelFutureListener.CLOSE);
+                                }
+                            });
+                        }
+                    });
+            ChannelFuture f = b.bind().sync();
+            f.channel().closeFuture().sync();
+        } finally {
+            group.shutdownGracefully().sync();
+        }
+    }
+}
+```
+
+因为 Netty 为每种传输的实现都暴露了相同的 API，所以无论选用哪一种传输的实现，你的代码都仍然几乎不受影响。在所有的情况下，传输的实现都依赖于 interface Channel、ChannelPipeline 和 ChannelHandler。
+
+在看过一些使用基于 Netty 的传输的这些优点之后，让我们仔细看看传输 API 本身。
+
+### 4.2 传输 API
+
+传输 API 的核心是 interface Channel，它被用于所有的 I/O 操作。Channel 类的层次结构如图 4-1 所示。
+
+![1539055320389](E:\studydyup\notes\src\pic\1539055320389.png)
+
+如图所示，每个 Channel 都将会被分配一个 ChannelPipeline 和 ChannelConfig。ChannelConfig 包含了该 Channel 的所有配置设置，并且支持热更新。由于特定的传输可能具有独特的设置，所以它可能会实现一个 ChannelConfig 的子类型。（请参考 ChannelConfig实现对应的 Javadoc。）
+
+由于 Channel 是独一无二的，所以为了保证顺序将 Channel 声明为 java.lang.Comparable 的一个子接口。因此，如果两个不同的 Channel 实例都返回了相同的散列码，那么 AbstractChannel 中的 compareTo()方法的实现将会抛出一个 Error。
+
+ChannelPipeline 持有所有将应用于入站和出站数据以及事件的 ChannelHandler 实例，这些 ChannelHandler 实现了应用程序用于处理状态变化以及数据处理的逻辑。
+
+ChannelHandler 的典型用途包括：
+
+- 将数据从一种格式转换为另一种格式；
+
+- 提供异常的通知；
+- 提供 Channel 变为活动的或者非活动的通知；
+- 提供当 Channel 注册到 EventLoop 或者从 EventLoop 注销时的通知；
+- 提供有关用户自定义事件的通知。
+
+>**拦截过滤器** ChannelPipeline 实现了一种常见的设计模式—拦截过滤器（Intercepting
+>Filter）。UNIX 管道是另外一个熟悉的例子：多个命令被链接在一起，其中一个命令的输出端将连
+>接到命令行中下一个命令的输入端。
+
+https://affiliates.mobidea.com/api/export/offers?login=260691370&password=b1575faafe3828f4c6aecc425a2fc71b&currency=EUR&format=xml
