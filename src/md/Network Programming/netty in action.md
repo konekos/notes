@@ -1165,4 +1165,244 @@ ChannelHandler 的典型用途包括：
 >Filter）。UNIX 管道是另外一个熟悉的例子：多个命令被链接在一起，其中一个命令的输出端将连
 >接到命令行中下一个命令的输入端。
 
-https://affiliates.mobidea.com/api/export/offers?login=260691370&password=b1575faafe3828f4c6aecc425a2fc71b&currency=EUR&format=xml
+你也可以根据需要通过添加或者移除ChannelHandler实例来修改ChannelPipeline。
+
+通过利用Netty的这项能力可以构建出高度灵活的应用程序。例如，每当STARTTLS协议被请求时，你可以简单地通过 向 ChannelPipeline 添 加 一个适当的 ChannelHandler（SslHandler）来按需地支持STARTTLS协议。
+
+除了访问所分配的 ChannelPipeline 和 ChannelConfig 之外，也可以利用 Channel的其他方法，其中最重要的列举在表 4-1 中。
+
+***表 4-1 Channel 的方法***
+
+| 方 法 名      | 描 述                                                        |
+| ------------- | ------------------------------------------------------------ |
+| eventLoop     | 返回分配给 Channel 的 EventLoop                              |
+| pipeline      | 返回分配给 Channel 的 ChannelPipeline                        |
+| isActive      | 如果 Channel 是活动的，则返回 true。活动的意义可能依赖于底层的传输。例如，<br/>一个 Socket 传输一旦连接到了远程节点便是活动的，而一个 Datagram 传输一旦
+被打开便是活动的 |
+| localAddress  | 返回本地的 SokcetAddress                                     |
+| remoteAddress | 返回远程的 SocketAddress                                     |
+| write         | 将数据写到远程节点。这个数据将被传递给 ChannelPipeline，并且排队直到它被<br/>冲刷 |
+| flush         | 将之前已写的数据冲刷到底层传输，如一个 Socket                |
+| writeAndFlush | 一个简便的方法，等同于调用 write()并接着调用 flush()         |
+
+稍后我们将进一步深入地讨论所有这些特性的应用。目前，请记住，Netty 所提供的广泛功能只依赖于少量的接口。这意味着，你可以对你的应用程序逻辑进行重大的修改，而又无需大规模地重构你的代码库。
+
+考虑一下写数据并将其冲刷到远程节点这样的常规任务。代码清单 4-5 演示了使用Channel.writeAndFlush()来实现这一目的。
+
+***代码清单 4-5 写出到 Channel***
+
+```java
+Channel channel = ...;
+        ByteBuf buf = Unpooled.copiedBuffer("Hi\r\n", CharsetUtil.UTF_8);
+        ChannelFuture cf = channel.writeAndFlush(buf);
+        cf.addListener(new ChannelFutureListener() {
+            @Override
+            public void operationComplete(ChannelFuture future) throws Exception {
+                if (future.isSuccess()) {
+                    System.out.println("Write successful");
+                } else {
+                    System.err.println("Write error");
+                    future.cause().printStackTrace();
+                }
+            }
+        });
+```
+
+Netty 的 Channel 实现是线程安全的，因此你可以存储一个到 Channel 的引用，并且每当你需要向远程节点写数据时，都可以使用它，即使当时许多线程都在使用它。代码清单 4-6 展示了一个多线程写数据的简单例子。需要注意的是，消息将会被保证按顺序发送。
+
+***代码清单 4-6 从多个线程使用同一个 Channel***
+
+```java
+final Channel channel = ...
+        final ByteBuf buf = Unpooled.copiedBuffer("Hi\r\n", CharsetUtil.UTF_8).retain();
+        Runnable writer = new Runnable() {
+            @Override
+            public void run() {
+                channel.writeAndFlush(buf.duplicate());
+            }
+        };
+        ExecutorService service = Executors.newCachedThreadPool();
+        //write in one thread
+        service.execute(writer);
+        // write in another thread
+        service.execute(writer);
+```
+
+### 4.3 内置的传输
+
+Netty 内置了一些可开箱即用的传输。因为并不是它们所有的传输都支持每一种协议，所以你必须选择一个和你的应用程序所使用的协议相容的传输。在本节中我们将讨论这些关系。
+
+表 4-2 显示了所有 Netty 提供的传输。
+
+ **4-2 Netty 所提供的传输**
+
+| 名称     | 包                          | 描述                                                         |
+| -------- | --------------------------- | ------------------------------------------------------------ |
+| NIO      | io.netty.channel.socket.nio | 使用 java.nio.channels 包作为基础——基于选择器的方式          |
+| Epoll①   | io.netty.channel.epoll      | 由 JNI 驱动的 epoll()和非阻塞 IO。这个传输支持只有在Linux上可用的多种特性，如SO_REUSEPORT，比 NIO 传输更快，而且是完全非阻塞的 |
+| OIO      | io.netty.channel.socket.oio | 使用 java.net 包作为基础——使用阻塞流                         |
+| Local    | io.netty.channel.local      | 可以在 VM 内部通过管道进行通信的本地传输                     |
+| Embedded | io.netty.channel.embedded   | Embedded 传输，允许使用 ChannelHandler 而又不需要一个真正的基于网络的传输。这在测试你的ChannelHandler 实现时非常有用 |
+
+#### 4.3.1 NIO——非阻塞 I/O
+
+NIO 提供了一个所有 I/O 操作的全异步的实现。它利用了自 NIO 子系统被引入 JDK 1.4 时便可用的基于选择器的 API。
+
+Selector背后的基本概念是充当一个注册表，在那里你将可以请求在 Channel 的状态发生变化时得到通知。可能的状态变化有：
+
+- 新的 Channel 已被接受并且就绪；
+- Channel 连接已经完成；
+- Channel 有已经就绪的可供读取的数据；
+- Channel 可用于写数据。
+
+Selector运行在一个检查状态变化并对其做出相应响应的线程上，在应用程序对状态的改变做出响应之后，Selector将会被重置，并将重复这个过程。
+
+表4-3中的常量值代表了由class java.nio.channels.SelectionKey定义的位模式。这些位模式可以组合起来定义一组应用程序正在请求通知的状态变化集。
+
+***表 4-3 选择操作的位模式***
+
+| 名 称      | 描 述                                                        |
+| ---------- | ------------------------------------------------------------ |
+| OP_ACCEPT  | 请求在接受新连接并创建 Channel 时获得通知                    |
+| OP_CONNECT | 请求在建立一个连接时获得通知                                 |
+| OP_READ    | 请求当数据已经就绪，可以从 Channel 中读取时获得通知          |
+| OP_WRITE   | 请求当可以向 Channel 中写更多的数据时获得通知。这处理了套接字缓冲区被完全填满时的情况，这种情况通常发生在数据的发送速度比远程节点可处理的速度更快的时候 |
+
+对于所有 Netty 的传输实现都共有的用户级别 API 完全地隐藏了这些 NIO 的内部细节。图 4-2 展示了该处理流程。
+
+​									*4.3 内置的传输*
+
+![1539160462529](E:\studydyup\notes\src\pic\1539160462529.png)
+
+> 零拷贝
+> 零拷贝（zero-copy）是一种目前只有在使用 NIO 和 Epoll 传输时才可使用的特性。它使你可以快速高效地将数据从文件系统移动到网络接口，而不需要将其从内核空间复制到用户空间，其在像 FTP 或者HTTP 这样的协议中可以显著地提升性能。但是，并不是所有的操作系统都支持这一特性。特别地，它对于实现了数据加密或者压缩的文件系统是不可用的——只能传输文件的原始内容。反过来说，传输已被加密的文件则不是问题。
+
+#### 4.3.2 Epoll—用于 Linux 的本地非阻塞传输
+
+正如我们之前所说的，Netty 的 NIO 传输基于 Java 提供的异步/非阻塞网络编程的通用抽象。虽然这保证了 Netty 的非阻塞 API 可以在任何平台上使用，但它也包含了相应的限制，因为 JDK为了在所有系统上提供相同的功能，必须做出妥协。
+
+Linux作为高性能网络编程的平台，其重要性与日俱增，这催生了大量先进特性的开发，其中包括epoll——一个高度可扩展的I/O事件通知特性。这个API自Linux内核版本 2.5.44（2002）被引入，提供了比旧的POSIX select和poll系统调用 ①更好的性能，同时现在也是Linux上非阻塞网络编程的事实标准。Linux JDK NIO API使用了这些epoll调用。
+
+① 参见 Linux 手册页中的 epoll(4)：http://linux.die.net/man/4/epoll。
+
+Netty为Linux提供了一组NIO API，其以一种和它本身的设计更加一致的方式使用epoll，并且以一种更加轻量的方式使用中断。①如果你的应用程序旨在运行于Linux系统，那么请考虑利用这个版本的传输；你将发现在高负载下它的性能要优于JDK的NIO实现。
+
+这个传输的语义与在图 4-2 所示的完全相同，而且它的用法也是简单直接的。相关示例参照代码清单 4-4。如果要在那个代码清单中使用 epoll 替代 NIO，只需要将 NioEventLoopGroup替换为 EpollEventLoopGroup ，并且将 NioServerSocketChannel.class 替换为EpollServerSocketChannel.class 即可。
+
+#### 4.3.3 OIO—旧的阻塞 I/O
+
+Netty 的 OIO 传输实现代表了一种折中：它可以通过常规的传输 API 使用，但是由于它是建立在 java.net 包的阻塞实现之上的，所以它不是异步的。但是，它仍然非常适合于某些用途。
+
+例如，你可能需要移植使用了一些进行阻塞调用的库（如JDBC②）的遗留代码，而将逻辑转换为非阻塞的可能也是不切实际的。相反，你可以在短期内使用Netty的OIO传输，然后再将你的代码移植到纯粹的异步传输上。让我们来看一看怎么做。
+
+在 java.net API 中，你通常会有一个用来接受到达正在监听的 ServerSocket 的新连接的线程。会创建一个新的和远程节点进行交互的套接字，并且会分配一个新的用于处理相应通信流量的线程。这是必需的，因为某个指定套接字上的任何 I/O 操作在任意的时间点上都可能会阻塞。使用单个线程来处理多个套接字，很容易导致一个套接字上的阻塞操作也捆绑了所有其他的套接字。
+
+有了这个背景，你可能会想，Netty是如何能够使用和用于异步传输相同的API来支持OIO的呢。答案就是，Netty利用了SO_TIMEOUT这个Socket标志，它指定了等待一个I/O操作完成的最大毫秒数。如果操作在指定的时间间隔内没有完成，则将会抛出一个SocketTimeout Exception。Netty将捕获这个异常并继续处理循环。在EventLoop下一次运行时，它将再次尝试。这实际上也是类似于Netty这样的异步框架能够支持OIO的唯一方式③。图 4-3 说明了这个逻辑。
+
+① JDK 的实现是水平触发，而 Netty 的（默认的）是边沿触发。有关的详细信息参见 epoll 在维基百科上的解释：http://en.wikipedia.org/wiki/Epoll - Triggering_modes。
+② JDBC 的文档可以在 www.oracle.com/technetwork/java/javase/jdbc/index.html 获取。
+③ 这种方式的一个问题是，当一个 SocketTimeoutException 被抛出时填充栈跟踪所需要的时间，其
+对于性能来说代价很大。
+
+![1539163138476](E:\studydyup\notes\src\pic\1539163138476.png)
+
+​							*图 4-3 OIO 的处理逻辑*
+
+#### 4.3.4 用于 JVM 内部通信的 Local 传输
+
+Netty 提供了一个 Local 传输，用于在同一个 JVM 中运行的客户端和服务器程序之间的异步通信。同样，这个传输也支持对于所有 Netty 传输实现都共同的 API。
+
+在这个传输中，和服务器 Channel 相关联的 SocketAddress 并没有绑定物理网络地址；相反，只要服务器还在运行，它就会被存储在注册表里，并在 Channel 关闭时注销。因为这个传输并不接受真正的网络流量，所以它并不能够和其他传输实现进行互操作。因此，客户端希望连接到（在同一个 JVM 中）使用了这个传输的服务器端时也必须使用它。除了这个限制，它的使用方式和其他的传输一模一样。
+
+#### 4.3.5 Embedded 传输
+
+Netty 提供了一种额外的传输，使得你可以将一组 ChannelHandler 作为帮助器类嵌入到其他的 ChannelHandler 内部。通过这种方式，你将可以扩展一个 ChannelHandler 的功能，而又不需要修改其内部代码。
+不足为奇的是，Embedded 传输的关键是一个被称为 EmbeddedChannel 的具体的 Channel实现。在第 9 章中，我们将详细地讨论如何使用这个类来为 ChannelHandler 的实现创建单元测试用例。
+
+### 4.4 传输的用例
+
+既然我们已经详细地了解了所有的传输，那么让我们考虑一下选用一个适用于特定用途的协议的因素吧。正如前面所提到的，并不是所有的传输都支持所有的核心协议，其可能会限制你的选择。表 4-4 展示了截止出版时的传输和其所支持的协议。
+
+​							***表 4-4 支持的传输和网络协议***
+
+| 传输              | TCP  | UDP  | SCTP | UDT  |
+| ----------------- | ---- | ---- | ---- | ---- |
+| NIO               | ×    | ×    | ×    | ×    |
+| Epoll（仅 Linux） | ×    | ×    | —    | —    |
+| OIO               | ×    | ×    | ×    | ×    |
+
+> 在 Linux 上启用 SCTP
+> SCTP 需要内核的支持，并且需要安装用户库。
+> 例如，对于 Ubuntu，可以使用下面的命令：
+>
+> `# sudo apt-get install libsctp1`
+>
+> 对于 Fedora，可以使用 yum：
+> `#sudo yum install kernel-modules-extra.x86_64 lksctp-tools.x86_64`
+> 有关如何启用 SCTP 的详细信息，请参考你的 Linux 发行版的文档。
+
+虽然只有SCTP传输有这些特殊要求，但是其他传输可能也有它们自己的配置选项需要考虑。此外，如果只是为了支持更高的并发连接数，服务器平台可能需要配置得和客户端不一样。
+
+这里是一些你很可能会遇到的用例。
+
+- *非阻塞代码库*——如果你的代码库中没有阻塞调用（或者你能够限制它们的范围），那么在 Linux 上使用 NIO 或者 epoll 始终是个好主意。虽然 NIO/epoll 旨在处理大量的并发连接，但是在处理较小数目的并发连接时，它也能很好地工作，尤其是考虑到它在连接之间共享线程的方式。
+- *阻塞代码库*——正如我们已经指出的，如果你的代码库严重地依赖于阻塞 I/O，而且你的应用程序也有一个相应的设计，那么在你尝试将其直接转换为 Netty 的 NIO 传输时，你将可能会遇到和阻塞操作相关的问题。不要为此而重写你的代码，可以考虑分阶段迁移：先从OIO 开始，等你的代码修改好之后，再迁移到 NIO（或者使用 epoll，如果你在使用 Linux）
+- *在同一个 JVM 内部的通信*——在同一个 JVM 内部的通信，不需要通过网络暴露服务，是Local 传输的完美用例。这将消除所有真实网络操作的开销，同时仍然使用你的 Netty 代码库。如果随后需要通过网络暴露服务，那么你将只需要把传输改为 NIO 或者 OIO 即可。
+- *测试你的 ChannelHandler 实现*——如果你想要为自己的 ChannelHandler 实现编写单元测试，那么请考虑使用 Embedded 传输。这既便于测试你的代码，而又不需要创建大量的模拟（mock）对象。你的类将仍然符合常规的 API 事件流，保证该 ChannelHandler在和真实的传输一起使用时能够正确地工作。
+
+表 4-5 总结了我们探讨过的用例。
+
+​							***表 4-5 应用程序的最佳传输***
+
+| 应用程序的需求                 | 推荐的传输                       |
+| ------------------------------ | -------------------------------- |
+| 非阻塞代码库或者一个常规的起点 | NIO（或者在 Linux 上使用 epoll） |
+| 阻塞代码库                     | OIO                              |
+| 在同一个 JVM 内部的通信        | Local                            |
+| 测试 ChannelHandler 的实现     | Embedded                         |
+
+### 4.5 小结
+
+在本章中，我们研究了传输、它们的实现和使用，以及 Netty 是如何将它们呈现给开发者的。
+
+我们深入探讨了 Netty 预置的传输，并且解释了它们的行为。因为不是所有的传输都可以在相同的 Java 版本下工作，并且其中一些可能只在特定的操作系统下可用，所以我们也描述了它们的最低需求。最后，我们讨论了你可以如何匹配不同的传输和特定用例的需求。
+
+在下一章中，我们将关注于 ByteBuf 和 ByteBufHolder——Netty 的数据容器。我们将展示如何使用它们以及如何通过它们获得最佳性能。
+
+## 第 5 章 ByteBuf
+
+>本章主要内容
+> ByteBuf——Netty 的数据容器
+> API 的详细信息
+> 用例
+> 内存分配
+
+正如前面所提到的，网络数据的基本单位总是字节。Java NIO 提供了 ByteBuffer 作为它的字节容器，但是这个类使用起来过于复杂，而且也有些繁琐。
+
+Netty 的 ByteBuffer 替代品是 ByteBuf，一个强大的实现，既解决了 JDK API 的局限性，又为网络应用程序的开发者提供了更好的 API。
+
+在本章中我们将会说明和 JDK 的 ByteBuffer 相比，ByteBuf 的卓越功能性和灵活性。这也将有助于更好地理解 Netty 数据处理的一般方式，并为将在第 6 章中针对 ChannelPipeline和 ChannelHandler 的讨论做好准备。
+
+### 5.1 ByteBuf 的 API
+
+Netty 的数据处理 API 通过两个组件暴露——abstract class ByteBuf 和 interfaceByteBufHolder。
+
+下面是一些 ByteBuf API 的优点：
+
+- 它可以被用户自定义的缓冲区类型扩展；
+- 通过内置的复合缓冲区类型实现了透明的零拷贝；
+- 容量可以按需增长（类似于 JDK 的 StringBuilder）；
+- 在读和写这两种模式之间切换不需要调用 ByteBuffer 的 flip()方法；
+- 读和写使用了不同的索引；
+- 支持方法的链式调用；
+- 支持引用计数；
+- 支持池化。
+
+其他类可用于管理 ByteBuf 实例的分配，以及执行各种针对于数据容器本身和它所持有的数据的操作。我们将在仔细研究 ByteBuf 和 ByteBufHolder 时探讨这些特性。
+
+### 5.2 ByteBuf 类——Netty 的数据容器
+
+因为所有的网络通信都涉及字节序列的移动，所以高效易用的数据结构明显是必不可少的。Netty 的 ByteBuf 实现满足并超越了这些需求。让我们首先来看看它是如何通过使用不同的索引来简化对它所包含的数据的访问的吧。
+
+#### 5.2.1 它是如何工作的
+
