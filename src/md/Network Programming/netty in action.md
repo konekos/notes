@@ -1406,3 +1406,25 @@ Netty 的数据处理 API 通过两个组件暴露——abstract class ByteBuf �
 
 #### 5.2.1 它是如何工作的
 
+ByteBuf 维护了两个不同的索引：一个用于读取，一个用于写入。当你从 ByteBuf 读取时，它的 readerIndex 将会被递增已经被读取的字节数。同样地，当你写入 ByteBuf 时，它的writerIndex 也会被递增。图 5-1 展示了一个空 ByteBuf 的布局结构和状态。
+
+![1539229312124](E:\studydyup\notes\src\pic\1539229312124.png)
+
+​				***图 5-1 一个读索引和写索引都设置为 0 的 16 字节 ByteBuf***
+
+要了解这些索引两两之间的关系，请考虑一下，如果打算读取字节直到 readerIndex 达到和 writerIndex 同样的值时会发生什么。在那时，你将会到达“可以读取的”数据的末尾。就如同试图读取超出数组末尾的数据一样，试图读取超出该点的数据将会触发一个IndexOutOfBoundsException。
+
+名称以 read 或者 write 开头的 ByteBuf 方法，将会推进其对应的索引，而名称以 set 或者 get 开头的操作则不会。后面的这些方法将在作为一个参数传入的一个相对索引上执行操作。
+
+可以指定 ByteBuf 的最大容量。试图移动写索引（即 writerIndex）超过这个值将会触发一个异常①。（默认的限制是 Integer.MAX_VALUE。）
+
+① 也就是说用户直接或者间接使 capacity(int)或者 ensureWritable(int)方法来增加超过该最大
+容量时抛出异常。—译者注
+
+#### 5.2.2 ByteBuf 的使用模式
+
+在使用 Netty 时，你将遇到几种常见的围绕 ByteBuf 而构建的使用模式。在研究它们时，我们心里想着图 5-1 会有所裨益—一个由不同的索引分别控制读访问和写访问的字节数组。
+
+##### 1．堆缓冲区
+
+最常用的 ByteBuf 模式是将数据存储在 JVM 的堆空间中。这种模式被称为支撑数组（backing array），
