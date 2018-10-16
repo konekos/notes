@@ -1539,3 +1539,278 @@ CompositeByteBuf compBuf = Unpooled.compositeBuffer();
 > CompositeByteBuf API 除了从 ByteBuf 继承的方法，CompositeByteBuf 提供了大量的附
 > 加功能。请参考 Netty 的 Javadoc 以获得该 API 的完整列表。
 
+### 5.3 字节级操作
+
+ByteBuf 提供了许多超出基本读、写操作的方法用于修改它的数据。在接下来的章节中，我们将会讨论这些中最重要的部分。
+
+#### 5.3.1 随机访问索引
+
+如同在普通的 Java 字节数组中一样，ByteBuf 的索引是从零开始的：第一个字节的索引是0，最后一个字节的索引总是 capacity() - 1。代码清单 5-6 表明，对存储机制的封装使得遍历 ByteBuf 的内容非常简单。
+
+***代码清单 5-6  访问数据***  
+
+```java
+ByteBuf buf = Unpooled.copiedBuffer("Hello", CharsetUtil.UTF_8);
+        for (int i = 0; i < buf.capacity(); i++) {
+            System.out.println(buf.getByte(i));
+        }
+```
+
+需要注意的是，使用那些需要一个索引值参数的方法（的其中）之一来访问数据既不会改变readerIndex 也不会改变 writerIndex。如果有需要，也可以通过调用 readerIndex(index)或者 writerIndex(index)来手动移动这两者。
+
+#### 5.3.2 顺序访问索引
+
+虽然 ByteBuf 同时具有读索引和写索引，但是 JDK 的 ByteBuffer 却只有一个索引，这也就是为什么必须调用 flip()方法来在读模式和写模式之间进行切换的原因。图 5-3 展示了ByteBuf 是如何被它的两个索引划分成 3 个区域的。
+
+![1539673178468](E:\studydyup\notes\src\pic\1539673178468.png)
+
+​							***图 5-3 ByteBuf 的内部分段***
+
+#### 5.3.3 可丢弃字节
+
+在图 5-3 中标记为可丢弃字节的分段包含了已经被读过的字节。通过调用 discardReadBytes()方法，可以丢弃它们并回收空间。这个分段的初始大小为 0，存储在 readerIndex 中，会随着 read 操作的执行而增加（get*操作不会移动 readerIndex）。
+
+图 5-4 展示了图 5-3 中所展示的缓冲区上调用discardReadBytes()方法后的结果。可以看到，可丢弃字节分段中的空间已经变为可写的了。注意，在调用discardReadBytes()之后，对可写分段的内容并没有任何的保证 ①。
+
+① 因为只是移动了可以读取的字节以及 writerIndex，而没有对所有可写入的字节进行擦除写。—译者注
+
+![1539673428906](E:\studydyup\notes\src\pic\1539673428906.png)
+
+​							***图 5-4 丢弃已读字节之后的 ByteBuf***
+
+虽然你可能会倾向于频繁地调用 discardReadBytes()方法以确保可写分段的最大化，但是请注意，这将极有可能会导致内存复制，因为可读字节（图中标记为 CONTENT 的部分）必须被移动到缓冲区的开始位置。我们建议只在有真正需要的时候才这样做，例如，当内存非常宝贵的时候。
+
+#### 5.3.4 可读字节
+
+ByteBuf 的可读字节分段存储了实际数据。新分配的、包装的或者复制的缓冲区的默认的readerIndex 值为 0。任何名称以 read 或者 skip 开头的操作都将检索或者跳过位于当前readerIndex 的数据，并且将它增加已读字节数。
+
+如果被调用的方法需要一个 ByteBuf 参数作为写入的目标，并且没有指定目标索引参数，那么该目标缓冲区的 writerIndex 也将被增加，例如:
+
+`readBytes(ByteBuf dest);`
+
+如果尝试在缓冲区的可读字节数已经耗尽时从中读取数据，那么将会引发一个 IndexOutOfBounds-Exception。
+
+代码清单 5-7 展示了如何读取所有可以读的字节。
+
+***代码清单 5-7 读取所有数据***
+
+```java
+ByteBuf buf = Unpooled.copiedBuffer("Hello", CharsetUtil.UTF_8);
+        while (buf.isReadable()) {
+            System.out.println(buf.readByte());
+        }
+```
+
+#### 5.3.5 可写字节
+
+可写字节分段是指一个拥有未定义内容的、写入就绪的内存区域。新分配的缓冲区的writerIndex 的默认值为 0。任何名称以 write 开头的操作都将从当前的 writerIndex 处开始写数据，并将它增加已经写入的字节数。如果写操作的目标也是 ByteBuf，并且没有指定源索引的值，则源缓冲区的 readerIndex 也同样会被增加相同的大小。这个调用如下所示：
+
+`writeBytes(ByteBuf dest);`
+
+如果尝试往目标写入超过目标容量的数据，将会引发一个IndexOutOfBoundException①。
+
+代码清单5-8 是一个用随机整数值填充缓冲区，直到它空间不足为止的例子。writeableBytes()方法在这里被用来确定该缓冲区中是否还有足够的空间。
+
+***代码清单 5-8 写数据*** 
+
+```java
+Random random = new Random();
+// Fills the writable bytes of a buffer with random integers.
+ByteBuf buffer = ...;
+while (buffer.writableBytes() >= 4) {
+    buffer.writeInt(random.nextInt());
+}
+```
+
+① 在往 ByteBuf 中写入数据时，其将首先确保目标 ByteBuf 具有足够的可写入空间来容纳当前要写入的数据，如果没有，则将检查当前的写索引以及最大容量是否可以在扩展后容纳该数据，可以则会分配并调整容量，否则就会抛出该异常。——译者注
+
+#### 5.3.6 索引管理
+
+JDK 的 InputStream 定义了 mark(int readlimit)和 reset()方法，这些方法分别被用来将流中的当前位置标记为指定的值，以及将流重置到该位置。
+同样，可以通过调用 markReaderIndex()、markWriterIndex()、resetWriterIndex()和 resetReader-Index()来标记和重置 ByteBuf 的 readerIndex 和 writerIndex。这些和InputStream 上的调用类似，只是没有 readlimit 参数来指定标记什么时候失效。
+也可以通过调用 readerIndex(int)或者 writerIndex(int)来将索引移动到指定位置。试图将任何一个索引设置到一个无效的位置都将导致一个 IndexOutOfBoundsException。
+可以通过调用 clear()方法来将 readerIndex 和 writerIndex 都设置为 0。注意，这并不会清除内存中的内容。图 5-5（重复上面的图 5-3）展示了它是如何工作的。
+
+![1539675462452](E:\studydyup\notes\src\pic\1539675462452.png)
+
+​							***图 5-5 clear()方法被调用之前***
+
+和之前一样，ByteBuf 包含 3 个分段。图 5-6 展示了在 clear()方法被调用之后 ByteBuf的状态。
+
+![1539675621091](E:\studydyup\notes\src\pic\1539675621091.png)
+
+​							***图 5-6 在 clear()方法被调用之后***
+
+调用 clear()比调用 discardReadBytes()轻量得多，因为它将只是重置索引而不会复制任何的内存。
+
+#### 5.3.7 查找操作
+
+在ByteBuf中有多种可以用来确定指定值的索引的方法。最简单的是使用indexOf()方法。较复杂的查找可以通过那些需要一个ByteBufProcessor①作为参数的方法达成。这个接口只定义了一个方法：
+
+`boolean process(byte value)`
+
+它将检查输入值是否是正在查找的值。
+
+ByteBufProcessor针对一些常见的值定义了许多便利的方法。假设你的应用程序需要和所谓的包含有以NULL结尾的内容的Flash套接字②集成。调用
+
+`forEachByte(ByteBufProcessor.FIND_NUL)`
+
+将简单高效地消费该 Flash 数据，因为在处理期间只会执行较少的边界检查。
+
+代码清单 5-9 展示了一个查找回车符（\r）的例子。
+
+***代码清单 5-9 使用 ByteBufProcessor 来寻找\r***
+
+```java
+ByteBuf buffer = ...;
+int index = buffer.forEachByte(ByteBufProcessor.FIND_CR);
+
+//查找字符
+ByteBuf buf = Unpooled.copiedBuffer("Hello   \r\r\r", CharsetUtil.UTF_8);
+
+        int i = buf.forEachByte(new ByteProcessor() {
+            @Override
+            public boolean process(byte value) throws Exception {
+                return value !=  (byte)111;
+            }
+        });
+        System.out.println(i);
+```
+
+①在 Netty 4.1.x 中，该类已经废弃，请使用 io.netty.util.ByteProcessor。
+
+#### 5.3.8 派生缓冲区
+
+派生缓冲区为 ByteBuf 提供了以专门的方式来呈现其内容的视图。这类视图是通过以下方法被创建的：
+
+- duplicate()；
+- slice()；
+- slice(int, int)；
+- Unpooled.unmodifiableBuffer(…)；
+- order(ByteOrder)；
+- readSlice(int)。
+
+每个这些方法都将返回一个新的 ByteBuf 实例，它具有自己的读索引、写索引和标记索引。其内部存储和 JDK 的 ByteBuffer 一样也是共享的。这使得派生缓冲区的创建成本是很低廉的，但是这也意味着，如果你修改了它的内容，也同时修改了其对应的源实例，所以要小心。
+
+>**ByteBuf 复制** 如果需要一个现有缓冲区的真实副本，请使用 copy()或者 copy(int, int)方
+>法。不同于派生缓冲区，由这个调用所返回的 ByteBuf 拥有独立的数据副本。
+
+代码清单 5-10 展示了如何使用 slice(int, int)方法来操作 ByteBuf 的一个分段。
+
+***代码清单 5-10 对 ByteBuf 进行切片***
+
+```java
+//创建一个用于保存给定字符串的字节的 ByteBuf
+ByteBuf buf = Unpooled.copiedBuffer("Netty in Action rocks!", CharsetUtil.UTF_8);
+//创建该 ByteBuf 从索引 0 开始到索引 15结束的一个新切片
+ByteBuf sliced = buf.slice(0, 15);
+System.out.println(sliced.toString(CharsetUtil.UTF_8));
+//更新索引 0 处的字节
+buf.setByte(0, (byte) 'J');
+//VM参数-qa   将会成功，因为数据是共享的，对其中一个所做的更改对另外一个也是可见的
+assert buf.getByte(0) == sliced.getByte(0);
+```
+
+现在，让我们看看 ByteBuf 的分段的副本和切片有何区别，如代码清单 5-11 所示。
+
+***代码清单 5-11 复制一个 ByteBuf***
+
+```java
+//创建一个用于保存给定字符串的字节的 ByteBuf
+ByteBuf buf = Unpooled.copiedBuffer("Netty in Action rocks!", CharsetUtil.UTF_8);
+//创建该 ByteBuf 从索引 0 开始到索引 15结束的一个新切片
+ByteBuf sliced = buf.copy(0, 15);
+System.out.println(sliced.toString(CharsetUtil.UTF_8));
+//更新索引 0 处的字节
+buf.setByte(0, (byte) 'J');
+//VM参数-qa   将会失败，因为是复制的，数据不共享
+assert buf.getByte(0) == sliced.getByte(0);
+```
+
+除了修改原始 ByteBuf 的切片或者副本的效果以外，这两种场景是相同的。只要有可能，使用 slice()方法来避免复制内存的开销。
+
+#### 5.3.9 读/写操作
+
+正如我们所提到过的，有两种类别的读/写操作：
+
+- get()和 set()操作，从给定的索引开始，并且保持索引不变；
+- read()和 write()操作，从给定的索引开始，并且会根据已经访问过的字节数对索引进行调整。
+
+表 5-1 列举了最常用的 get()方法。完整列表请参考对应的 API 文档。
+
+​								***表 5-1 get()操作***
+
+| 名 称                  | 描 述                                              |
+| :--------------------- | :------------------------------------------------- |
+| getBoolean(int)        | 返回给定索引处的 Boolean 值                        |
+| getByte(int)           | 返回给定索引处的字节                               |
+| getUnsignedByte(int)   | 将给定索引处的无符号字节值作为 short 返回          |
+| getMedium(int)         | 返回给定索引处的 24 位的中等 int 值                |
+| getUnsignedMedium(int) | 返回给定索引处的无符号的 24 位的中等 int 值        |
+| getInt(int)            | 返回给定索引处的 int 值                            |
+| getUnsignedInt(int)    | 将给定索引处的无符号 int 值作为 long 返回          |
+| getLong(int)           | 返回给定索引处的 long 值                           |
+| getShort(int)          | 返回给定索引处的 short 值                          |
+| getUnsignedShort(int)  | 将给定索引处的无符号 short 值作为 int 返回         |
+| getBytes(int, ...)     | 将该缓冲区中从给定索引开始的数据传送到指定的目的地 |
+
+大多数的这些操作都有一个对应的 set()方法。这些方法在表 5-2 中列出。
+
+![1539680176708](E:\studydyup\notes\src\pic\1539680176708.png)
+
+代码清单 5-12 说明了 get()和 set()方法的用法，表明了它们不会改变读索引和写索引。
+
+***代码清单 5-12 get()和 set()方法的用法***
+
+```java
+ByteBuf buf = Unpooled.copiedBuffer("Netty in Action rocks!", CharsetUtil.UTF_8);
+System.out.println((char) buf.getByte(0));
+//记录读写索引
+int readerIndex = buf.readerIndex();
+int writerIndex = buf.writerIndex();
+buf.setByte(0, (byte) 'A');
+System.out.println((char)buf.getByte(0));
+//成功，因为没有改变索引
+assert readerIndex == buf.readerIndex();
+assert writerIndex == buf.writerIndex();
+```
+
+现在，让我们研究一下 read()操作，其作用于当前的 readerIndex 或 writerIndex。这些方法将用于从 ByteBuf 中读取数据，如同它是一个流。表 5-3 展示了最常用的方法。
+
+![1539681864597](E:\studydyup\notes\src\pic\1539681864597.png)
+
+![1539681879649](E:\studydyup\notes\src\pic\1539681879649.png)
+***代码清单 5-13 ByteBuf 上的 read()和 write()操作***
+
+```java
+ByteBuf buf = Unpooled.copiedBuffer("Netty in Action rocks!", CharsetUtil.UTF_8);
+System.out.println((char) buf.getByte(0));
+//记录读写索引
+int readerIndex = buf.readerIndex();
+int writerIndex = buf.writerIndex();
+buf.writeByte((byte)'A');
+System.out.println((char)buf.getByte(0));
+//成功，因为write改变了索引
+assert readerIndex == buf.readerIndex();
+assert writerIndex != buf.writerIndex();
+```
+
+#### 5.3.10 更多的操作
+
+表 5-5 列举了由 ByteBuf 提供的其他有用操作。
+
+​							***表 5-5 其他有用的操作***
+
+| 名 称           | 描 述                                                        |
+| --------------- | ------------------------------------------------------------ |
+| isReadable()    | 如果至少有一个字节可供读取，则返回 true                      |
+| isWritable()    | 如果至少有一个字节可被写入，则返回 true                      |
+| readableBytes() | 返回可被读取的字节数                                         |
+| writableBytes() | 返回可被写入的字节数                                         |
+| capacity()      | 返回 ByteBuf 可容纳的字节数。在此之后，它会尝试再次扩展直到达到 maxCapacity() |
+| maxCapacity()   | 返回 ByteBuf 可以容纳的最大字节数                            |
+| hasArray()      | 如果 ByteBuf 由一个字节数组支撑，则返回 true                 |
+| array()         | 如果 ByteBuf 由一个字节数组支撑则返回该数组；否则，它将抛出一个<br/>UnsupportedOperationException 异常 |
+
+### 5.4 ByteBufHolder 接口
+
