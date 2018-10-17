@@ -1814,3 +1814,78 @@ assert writerIndex != buf.writerIndex();
 
 ### 5.4 ByteBufHolder 接口
 
+我们经常发现，除了实际的数据负载之外，我们还需要存储各种属性值。HTTP 响应便是一个很好的例子，除了表示为字节的内容，还包括状态码、cookie 等。
+
+为了处理这种常见的用例，Netty 提供了 ByteBufHolder。ByteBufHolder 也为 Netty 的高级特性提供了支持，如缓冲区池化，其中可以从池中借用 ByteBuf，并且在需要时自动释放。
+
+ByteBufHolder 只有几种用于访问底层数据和引用计数的方法。表 5-6 列出了它们（这里不包括它继承自 ReferenceCounted 的那些方法）。
+
+​							***表 5-6 ByteBufHolder 的操作***
+
+![1539747998424](E:\studydyup\notes\src\pic\1539747998424.png)
+
+如果想要实现一个将其有效负载存储在 ByteBuf 中的消息对象，那么 ByteBufHolder 将是个不错的选择。
+
+### 5.5 ByteBuf 分配
+
+在这一节中，我们将描述管理 ByteBuf 实例的不同方式。
+
+#### 5.5.1 按需分配：ByteBufAllocator 接口
+
+为了降低分配和释放内存的开销，Netty 通过 interface ByteBufAllocator 实现了（ByteBuf 的）池化，它可以用来分配我们所描述过的任意类型的 ByteBuf 实例。使用池化是特定于应用程序的决定，其并不会以任何方式改变 ByteBuf API（的语义）。
+
+表 5-7 列出了 ByteBufAllocator 提供的一些操作。
+
+​						***表 5-7 ByteBufAllocator 的方法***
+
+![1539761681846](E:\studydyup\notes\src\pic\1539761681846.png)
+
+可以通过 Channel（每个都可以有一个不同的 ByteBufAllocator 实例）或者绑定到ChannelHandler 的 ChannelHandlerContext 获取一个到 ByteBufAllocator 的引用。代码清单 5-14 说明了这两种方法。
+
+①默认地，当所运行的环境具有 sun.misc.Unsafe 支持时，返回基于直接内存存储的 ByteBuf，否则
+返回基于堆内存存储的 ByteBuf；当指定使用 PreferHeapByteBufAllocator 时，则只会返回基
+于堆内存存储的 ByteBuf。
+
+***代码清单 5-14 获取一个到 ByteBufAllocator 的引用***
+
+```java
+Channel channel = ...;
+//从 Channel 获取一个到ByteBufAllocator 的引用
+ByteBufAllocator alloc = channel.alloc();
+ChannelHandlerContext ctx = ...;
+//从 ChannelHandlerContext 获取一个到 ByteBufAllocator 的引用
+ByteBufAllocator allocator = ctx.alloc();
+```
+
+Netty提供了两种ByteBufAllocator的实现：PooledByteBufAllocator和UnpooledByteBufAllocator。前者池化了ByteBuf的实例以提高性能并最大限度地减少内存碎片。此实现使用了一种称为jemalloc②的已被大量现代操作系统所采用的高效方法来分配内存。后者的实现不池化ByteBuf实例，并且在每次它被调用时都会返回一个新的实例。
+
+虽然Netty默认使用了PooledByteBufAllocator，但这可以很容易地通过ChannelConfigAPI或者在引导你的应用程序时指定一个不同的分配器来更改。更多的细节可在第8 章中找到。
+
+#### 5.5.2 Unpooled 缓冲区
+
+可能某些情况下，你未能获取一个到 ByteBufAllocator 的引用。对于这种情况，Netty 提供了一个简单的称为 Unpooled 的工具类，它提供了静态的辅助方法来创建未池化的 ByteBuf实例。表 5-8 列举了这些中最重要的方法。
+
+​							***表 5-8 Unpooled 的方法*** 
+
+|                                                              |                                                 |
+| ------------------------------------------------------------ | ----------------------------------------------- |
+| buffer()<br/>buffer(int initialCapacity)
+buffer(int initialCapacity, int maxCapacity) | 返回一个未池化的基于堆内存存储的<br/>ByteBuf    |
+| directBuffer()<br/>directBuffer(int initialCapacity)
+directBuffer(int initialCapacity, int maxCapacity) | 返回一个未池化的基于直接内存存储<br/>的 ByteBuf |
+| wrappedBuffer()                                              | 返回一个包装了给定数据的 ByteBuf                |
+| copiedBuffer()                                               | 返回一个复制了给定数据的 ByteBuf                |
+
+Unpooled 类还使得 ByteBuf 同样可用于那些并不需要 Netty 的其他组件的非网络项目，使得其能得益于高性能的可扩展的缓冲区 API。
+
+#### 5.5.3 ByteBufUtil 类
+
+ByteBufUtil 提供了用于操作 ByteBuf 的静态的辅助方法。因为这个 API 是通用的，并且和池化无关，所以这些方法已然在分配类的外部实现。
+
+这些静态方法中最有价值的可能就是 hexdump()方法，它以十六进制的表示形式打印ByteBuf 的内容。这在各种情况下都很有用，例如，出于调试的目的记录 ByteBuf 的内容。十六进制的表示通常会提供一个比字节值的直接表示形式更加有用的日志条目，此外，十六进制的版本还可以很容易地转换回实际的字节表示。
+
+另一个有用的方法是 boolean equals(ByteBuf, ByteBuf)，它被用来判断两个 ByteBuf实例的相等性。如果你实现自己的 ByteBuf 子类，你可能会发现 ByteBufUtil 的其他有用方法。
+
+### 5.6 引用计数
+
+引用计数是一种通过在某个对象所持有的资源不再被其他对象引用时释放该对象所持有的资源来优化内存使用和性能的技术。Netty 在第 4 版中为 ByteBuf 和 ByteBufHolder 引入了引用计数技术，它们都实现了 interface ReferenceCounted。
