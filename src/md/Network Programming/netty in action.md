@@ -1889,3 +1889,62 @@ ByteBufUtil 提供了用于操作 ByteBuf 的静态的辅助方法。因为这�
 ### 5.6 引用计数
 
 引用计数是一种通过在某个对象所持有的资源不再被其他对象引用时释放该对象所持有的资源来优化内存使用和性能的技术。Netty 在第 4 版中为 ByteBuf 和 ByteBufHolder 引入了引用计数技术，它们都实现了 interface ReferenceCounted。
+
+引用计数背后的想法并不是特别的复杂；它主要涉及跟踪到某个特定对象的活动引用的数量。一个 ReferenceCounted 实现的实例将通常以活动的引用计数为 1 作为开始。只要引用计数大于 0，就能保证对象不会被释放。当活动引用的数量减少到 0 时，该实例就会被释放。注意，虽然释放的确切语义可能是特定于实现的，但是至少已经释放的对象应该不可再用了。引用计数对于池化实现（如 PooledByteBufAllocator）来说是至关重要的，它降低了内存分配的开销。代码清单 5-15 和代码清单 5-16 展示了相关的示例。
+
+***代码清单 5-15 引用计数***
+
+```java
+Channel channel = ...;
+ByteBufAllocator allocator = channel.alloc();
+....
+ByteBuf buffer = allocator.directBuffer();
+//检查引用计数是否为预期的 1
+assert buffer.refCnt() == 1;
+...
+ByteBuf buffer = ...;
+//减少到该对象的活动引用。当减少到 0 时，该对象被释放，并且该方法返回 true
+boolean released = buffer.release();
+```
+
+试图访问一个已经被释放的引用计数的对象，将会导致一个 IllegalReferenceCountException。
+
+注意，一个特定的（ReferenceCounted 的实现）类，可以用它自己的独特方式来定义它的引用计数规则。例如，我们可以设想一个类，其 release()方法的实现总是将引用计数设为零，而不用关心它的当前值，从而一次性地使所有的活动引用都失效。
+
+> **谁负责释放** 一般来说，是由最后访问（引用计数）对象的那一方来负责将它释放。在第 6 章中，我们将会解释这个概念和 ChannelHandler 以及 ChannelPipeline 的相关性。
+
+## 第 6 章 ChannelHandler 和 ChannelPipeline
+
+> 本章主要内容
+>
+> - ChannelHandler API 和 ChannelPipeline API
+> - 检测资源泄漏
+> - 异常处理
+
+在上一章中你学习了 ByteBuf—Netty 的数据容器。当我们在本章中探讨 Netty 的数据流以及处理组件时，我们将基于已经学过的东西，并且你将开始看到框架的重要元素都结合到了一起。
+
+你已经知道，可以在 ChannelPipeline 中将 ChannelHandler 链接在一起以组织处理逻辑。我们将会研究涉及这些类的各种用例，以及一个重要的关系—ChannelHandlerContext。
+
+理解所有这些组件之间的交互对于通过 Netty 构建模块化的、可重用的实现至关重要。
+
+### 6.1 ChannelHandler 家族
+
+在我们开始详细地学习 ChannelHandler 之前，我们将在 Netty 的组件模型的这部分基础上花上一些时间。
+
+#### 6.1.1 Channel 的生命周期
+
+Interface Channel 定义了一组和 ChannelInboundHandler API 密切相关的简单但功能强大的状态模型，表 6-1 列出了 Channel 的这 4 个状态。
+
+​						***表 6-1 Channel 的生命周期状态***
+
+| 状 态               | 描 述                                                        |
+| ------------------- | ------------------------------------------------------------ |
+| ChannelUnregistered | Channel 已经被创建，但还未注册到 EventLoop                   |
+| ChannelRegistered   | Channel 已经被注册到了 EventLoop                             |
+| ChannelActive       | Channel 处于活动状态（已经连接到它的远程节点）。它现在可以接收和发送数据了 |
+| ChannelInactive     | Channel 没有连接到远程节点                                   |
+
+Channel 的正常生命周期如图 6-1 所示。当这些状态发生改变时，将会生成对应的事件。这些事件将会被转发给 ChannelPipeline 中的 ChannelHandler，其可以随后对它们做出响应。
+
+![1540979172820](E:\studydyup\notes\src\pic\1540979172820.png)
+
