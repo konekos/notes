@@ -1948,3 +1948,45 @@ Channel 的正常生命周期如图 6-1 所示。当这些状态发生改变时�
 
 ![1540979172820](E:\studydyup\notes\src\pic\1540979172820.png)
 
+#### 6.1.2 ChannelHandler 的生命周期
+
+表 6-2 中列出了 interface ChannelHandler 定义的生命周期操作，在 ChannelHandler被添加到 ChannelPipeline 中或者被从 ChannelPipeline 中移除时会调用这些操作。这些方法中的每一个都接受一个 ChannelHandlerContext 参数。
+
+​						***表 6-2 ChannelHandler 的生命周期方法***
+
+ 
+
+| 类 型           | 描 述                                                 |
+| --------------- | ----------------------------------------------------- |
+| handlerAdded    | 当把 ChannelHandler 添加到 ChannelPipeline 中时被调用 |
+| handlerRemoved  | 当从 ChannelPipeline 中移除 ChannelHandler 时被调用   |
+| exceptionCaught | 当处理过程中在 ChannelPipeline 中有错误产生时被调用   |
+
+Netty 定义了下面两个重要的 ChannelHandler 子接口：
+
+- ChannelInboundHandler——处理入站数据以及各种状态变化；
+- ChannelOutboundHandler——处理出站数据并且允许拦截所有的操作。
+
+在接下来的章节中，我们将详细地讨论这些子接口。
+
+#### 6.1.3 ChannelInboundHandler 接口
+
+表 6-3 列出了 interface ChannelInboundHandler 的生命周期方法。这些方法将会在数据被接收时或者与其对应的 Channel 状态发生改变时被调用。正如我们前面所提到的，这些方法和 Channel 的生命周期密切相关。
+
+​					***表 6-3 ChannelInboundHandler 的方法***
+
+| 类 型                     | 描 述                                                        |
+| ------------------------- | ------------------------------------------------------------ |
+| channelRegistered         | 当 Channel 已经注册到它的 EventLoop 并且能够处理 I/O 时被调用 |
+| channelUnregistered       | 当 Channel 从它的 EventLoop 注销并且无法处理任何 I/O 时被调用 |
+| channelActive             | 当 Channel 处于活动状态时被调用；Channel 已经连接/绑定并且已经就绪 |
+| channelInactive           | 当 Channel 离开活动状态并且不再连接它的远程节点时被调用      |
+| channelReadComplete       | 当Channel上的一个读操作完成时被调用(可能调用多次)            |
+| channelRead               | 当从 Channel 读取数据时被调用                                |
+| ChannelWritabilityChanged | 当 Channel 的可写状态发生改变时被调用。用户可以确保写操作不会完成<br/>得太快（以避免发生 OutOfMemoryError）或者可以在 Channel 变为再
+次可写时恢复写入。可以通过调用 Channel 的 isWritable()方法来检测
+Channel 的可写性。与可写性相关的阈值可以通过 Channel.config().
+setWriteHighWaterMark()和 Channel.config().setWriteLowWaterMark()方法来设置 |
+| userEventTriggered        | 当 ChannelnboundHandler.fireUserEventTriggered()方法被调<br/>用时被调用，因为一个 POJO 被传经了 ChannelPipeline |
+
+当某个 ChannelInboundHandler 的实现重写 channelRead()方法时，它将负责显式地释放与池化的 ByteBuf 实例相关的内存。Netty 为此提供了一个实用方法 ReferenceCountUtil.release()如代码清单6-1 所示。
