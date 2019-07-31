@@ -565,6 +565,8 @@ public class LockTest {
 
 thread.getStackTrace();
 
+thread.setUncaughtExceptionHandler; 
+
 ### ThreadGroup
 
 
