@@ -23,7 +23,7 @@ netstat -na | grep 2181
 启动kafka
 bin/kafka-server-start.sh -daemon config/server.properties
 
-连接到kafka 
+连接到kafka
 bin/zookeeper-shell.sh localhost:2181
 
 ls /
@@ -158,7 +158,7 @@ producer是线程安全的。往buffer里放record，batch统一发送给broker�
 
 kafka producer 强制属性
 
-- bootstrap.servers 
+- bootstrap.servers
 - key.serializer
 - value.serializer
 
@@ -256,7 +256,7 @@ ProducerRecord<String, String> record = new ProducerRecord<>("fsender", String.v
 - client.id  用于做日志，统计，报表。
 - max.in.fight.requests.per.connection 控制多少个消息不需要等应答。越大使用内存越高，设置太大会让batch无效。设置成1，一个一个地发，失败重试也不会发第二个。
 - timeout.ms request.timeout.ms, metadata.fetct.timeout.ms 超时时间。
-- max.block.ms 
+- max.block.ms
 - max.request.size  broker的
 
 ##### 担保顺序
@@ -540,7 +540,7 @@ Kafka的Consumer是不能多线程操作的，producer可以。
 - partition.assignment.strategy   分配给Consumer partition的策略。Range（会因topic为奇数造成不均）或RoundBin。RangeAssigner接口，可以实现自定义。
 - client.id      好处在broker可以有标识。
 - max.poll.records     如果配置了前面的最小大小，可能会拉几次，达到一次返回的数据。
-- send.buffer.bytes    
+- send.buffer.bytes
 - receieve.buffer.bytes  在不同数据中心，调大可以减少交互的次数。
 
 
@@ -884,7 +884,7 @@ follower replication：即时同步leader的数据。
 
 leader的另一个任务是知道 哪个follower同步up-to-date。follower尝试与leader一致，如果同步落后太多会被移除（Isr）。
 
-leader 1-10   
+leader 1-10
 
 follower1  1-9      未来的的及同步10，不影响在Isr里面。
 
@@ -982,11 +982,11 @@ kafka写到内存里，就算成功了，没有到真正落盘。
 
 - Reliable-Mininum In-Sync Replica  min.insync.replicas  (可在broker配置，是全局的；topic level配置，只控制topic)至少几个副本在Isr里，才能写。0.10版本acks=all（确保leader同步到了所有Isr队列，副本挂掉就忽略了），min.insync.replicas=2，不能写，但可读。0.11版本ack=1；可以往leader写，但是不可读。
 
-  
+
 
   **最小同步中副本数可以设置为 总副本数 N/2 + 1;  unclean为false，acks=all。防止数据不丢失。**
 
-  
+
 
 #### 3、Producer deliver Reliable
 
@@ -1054,7 +1054,7 @@ Consumer侧需要配置的参数：
   解决方案：
 
   - messgae里有unique key。->存到数据库/redis里，或者请求api等做处理。业务要满足幂等。
-  - 
+  -
 
 #### 5、 Vliadating System Reliable
 
