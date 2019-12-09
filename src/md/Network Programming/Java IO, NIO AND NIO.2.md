@@ -8448,7 +8448,7 @@ IP地址是一个32位或128位的无符号整数，惟一地标识一个网络�
 
 一个进程写message（字节序列）到socket。底层平台的网络管理软件部分将消息分解成一系列数据包（可寻址的消息块，通常称为IP数据报），把它们转发到另一个进程的socket，将它们重新组合为原始信息进行处理。
 
-![1537933904419](E:\studydyup\notes\src\pic\%5CUsers%5CJudy%5CAppData%5CRoaming%5CTypora%5Ctypora-user-images%5C1537933904419.png)
+![1537933904419](E:\studydyup\notes\src\pic\2384732848.png)
 
 在图B-1的上下文中，假设进程A想要发送一条消息给进程B。A发消息到它的socket，附有B的目标socket地址。主机A的network management software（通常被称为协议栈）获得message，将其简化为一系列信息包，每个包包含目标主机的IP地址和端口号。然后 network management software通过A主机的 Network Interface Card（NIC）到主机B。
 
