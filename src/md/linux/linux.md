@@ -98,3 +98,104 @@ ps aux | grep bc| xargs kill -9
 
 java -jar bc-0.0.1-SNAPSHOT.jar > log.file 2>&1 &
 
+
+
+## awk
+
+```bash
+# 格式
+$ awk 动作 文件名
+
+# 示例
+$ awk '{print $0}' demo.txt
+```
+
+`$0`代表当前行
+
+`awk`会根据空格和制表符，将每一行分成若干字段，依次用`$1`、`$2`、`$3`代表第一个字段、第二个字段、第三个字段等等。
+
+```bash
+$ echo 'this is a test' | awk '{print $3}'
+```
+
+`-F`参数指定分隔符
+
+```bash
+awk -F ':' '{ print $1 }' demo.txt
+```
+
+
+
+除了`$ + 数字`表示某个字段，`awk`还提供其他一些变量。
+
+变量`NF`表示当前行有多少个字段，因此`$NF`就代表最后一个字段。
+
+```bash
+$ echo 'this is a test' | awk '{print $NF}'
+```
+
+`$(NF-1)`代表倒数第二个字段。
+
+```bash
+$ echo 'this is a test' | awk '{print $(NF-1)}'
+```
+
+print里的逗号代表输出时两部分空格分隔。
+
+```bash
+$ awk -F ':' '{print $1, $(NF-1)}' demo.txt
+```
+
+
+
+变量`NR`表示当前处理的是第几行
+
+```bash
+awk -F ':' '{print NR ") " $1}' demo.txt
+```
+
+```bash
+echo 'this is a test' | awk '{print NR ")", $1}'
+```
+
+`awk`的其他内置变量如下。
+
+> - `FILENAME`：当前文件名
+> - `FS`：字段分隔符，默认是空格和制表符。
+> - `RS`：行分隔符，用于分割每一行，默认是换行符。
+> - `OFS`：输出字段的分隔符，用于打印时分隔字段，默认为空格。
+> - `ORS`：输出记录的分隔符，用于打印时分隔记录，默认为换行符。
+> - `OFMT`：数字输出的格式，默认为`％.6g`。
+
+
+
+`awk`还提供了一些内置函数，方便对原始数据的处理。
+
+函数`toupper()`用于将字符转为大写。
+
+其他常用函数如下。
+
+> - `tolower()`：字符转为小写。
+> - `length()`：返回字符串长度。
+> - `substr()`：返回子字符串。
+> - `sin()`：正弦。
+> - `cos()`：余弦。
+> - `sqrt()`：平方根。
+> - `rand()`：随机数。
+
+
+
+`awk`允许指定输出条件，只输出符合条件的行。
+
+输出条件要写在动作的前面。
+
+```bash
+$ awk '条件 动作' 文件名
+```
+
+正则
+
+```bash
+awk -F ':' '/usr/ {print $1}' demo.txt
+```
+
