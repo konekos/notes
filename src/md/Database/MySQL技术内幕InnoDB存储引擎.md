@@ -633,3 +633,24 @@ innodb_data_file_path=/db/ibdata1:2000M;/dr2/db/ibdata2:2000M:autoextend
 
 ## 4.1　索引组织表
 
+在InnoDB存储引擎中，表都是根据主键顺序组织存放的，这种存储方式的表称为索引组织表（index organized table）。在InnoDB存储引擎表中，每张表都有个主键（Primary Key），如果在创建表时没有显式地定义主键，则InnoDB存储引擎会按如下方式选择或创建主键：
+
+❑首先判断表中是否有非空的唯一索引（Unique NOT NULL），如果有，则该列即为主键。
+❑如果不符合上述条件，InnoDB存储引擎自动创建一个6字节大小的指针。
+
+❑当表中有多个非空唯一索引时，InnoDB存储引擎将选择建表时第一个定义的非空唯一索引为主键。这里需要非常注意的是，主键的选择根据的是定义索引的顺序，而不是建表时列的顺序。
+
+```
+SELECT a,b,c,d,_rowid FROM z
+```
+
+_rowid可以显示表的主键，只能看单个列为主键。
+
+## 4.2　InnoDB逻辑存储结构
+
+从InnoDB存储引擎的逻辑存储结构看，所有数据都被逻辑地存放在一个空间中，称之为表空间（tablespace）。表空间又由段（segment）、区（extent）、页（page）组成。页在一些文档中有时也称为块（block），InnoDB存储引擎的逻辑存储结构大致如图4-1所示。
+
+![image-20191226190319755](E:\studydyup\notes\src\pic\image-20191226190319755.png)
+
+### 4.2.1　表空间
+
