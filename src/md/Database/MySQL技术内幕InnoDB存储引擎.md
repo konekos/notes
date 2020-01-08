@@ -1387,3 +1387,550 @@ InnoDB存储引擎有3种行锁的算法，其分别是：
 ❑Record Lock：单个行记录上的锁
 ❑Gap Lock：间隙锁，锁定一个范围，但不包含记录本身
 ❑Next-Key Lock∶Gap Lock+Record Lock，锁定一个范围，并且锁定记录本身
+
+Record Lock**总是会去锁住索引记录**，如果InnoDB存储引擎表在建立的时候没有设置任何一个索引，那么这时InnoDB存储引擎会使用隐式的主键来进行锁定。
+
+Next-Key Lock是结合了Gap Lock和Record Lock的一种锁定算法，在Next-Key Lock算法下，InnoDB对于行的查询都是采用这种锁定算法。例如一个索引有10，11，13和20这四个值，那么该索引可能被Next-Key Locking的区间为：
+
+(-∞,10]
+(10,11]
+(11,13]
+(13，20]
+(20,+∞)
+
+采用Next-Key Lock的锁定技术称为Next-Key Locking。其设计的目的是为了解决Phantom Problem，这将在下一小节中介绍。而利用这种锁定技术，锁定的不是单个值，而是一个范围，是谓词锁（predict lock）的一种改进。除了next-key locking，还有previous-key locking技术。同样上述的索引10、11、13和20，若采用previous-key locking技术，那么可锁定的区间为：
+
+-∞,10)
+[10,11)
+[11,13)
+[13，20)
+[20,+∞)
+
+若事务T1已经通过next-key locking锁定了如下范围：
+
+(10,11]、(11，13]
+
+当插入新的记录12时，则锁定的范围会变成：
+
+(10,11]、(11,12]、(12，13]
+
+然而，当查询的索引含有唯一属性时，InnoDB存储引擎会对Next-Key Lock进行优化，将其降级为Record Lock，即仅锁住索引本身，而不是范围。
+
+```
+DROP TABLE IF EXISTS t;
+CREATE TABLE t(a INT PRIMARY KEY);
+INSERT INTO t SELECT 1;
+INSERT INTO t SELECT 2;
+INSERT INTO t SELECT 5;
+```
+
+接着来执行表6-12中的SQL语句。
+
+![image-20200108110542014](E:\studydyup\notes\src\pic\image-20200108110542014.png)
+
+表t共有1、2、5三个值。在上面的例子中，在会话A中首先对a=5进行X锁定。而由于a是主键且唯一，**因此锁定的仅是5这个值，而不是(2，5)这个范围，**这样在会话B中插入值4而不会阻塞，可以立即插入并返回。**即锁定由Next-Key Lock算法降级为了Record Lock**，从而提高应用的并发性。
+
+正如前面所介绍的，Next-Key Lock降级为Record Lock仅在查询的列是唯一索引的情况下。**若是辅助索引，则情况会完全不同。**同样，首先根据如下代码创建测试表z：
+
+```
+CREATE TABLE z(a INT,b INT,PRIMARY KEY(a),KEY(b));
+INSERT INTO z SELECT 1,1;
+INSERT INTO z SELECT 3,1;
+INSERT INTO z SELECT 5,3;
+INSERT INTO z SELECT 7,6;
+INSERT INTO z SELECT 10,8;
+```
+
+表z的列b是辅助索引，若在会话A中执行下面的SQL语句：
+SELECT*FROM z WHERE b=3 FOR UPDATE
+
+很明显，这时SQL语句通过索引列b进行查询，因此其使用传统的Next-Key Locking技术加锁，并且由于有两个索引，其需要分别进行锁定。对于聚集索引，**其仅对列a等于5的索引加上Record Lock**。而**对于辅助索引**，其**加上的是Next-Key Lock，锁定的范围是(1，3)，特别需要注意的是，InnoDB存储引擎还会对辅助索引下一个键值加上gap lock，即还有一个辅助索引范围为(3，6)的锁。**因此，若在新会话B中运行下面的SQL语句，都会被阻塞：
+
+SELECT*FROM z WHERE a=5 LOCK IN SHARE MODE;
+INSERT INTO z SELECT 4,2;
+
+INSERT INTO z SELECT 6,5;
+
+第一个SQL语句不能执行，因为在会话A中执行的SQL语句已经对聚集索引中列a=5的值加上X锁，因此执行会被阻塞。第二个SQL语句，主键插入4，没有问题，但是插入的辅助索引值2在锁定的范围(1，3)中，因此执行同样会被阻塞。第三个SQL语句，插入的主键6没有被锁定，5也不在范围(1，3)之间。但插入的值5在另一个锁定的范围(3，6)中，故同样需要等待。而下面的SQL语句，不会被阻塞，可以立即执行：
+
+INSERT INTO z SELECT 8,6;
+INSERT INTO z SELECT 2,0;
+INSERT INTO z SELECT 6,7;
+
+从上面的例子中可以看到，Gap Lock的作用是为了阻止多个事务将记录插入到同一范围内，而这会导致Phantom Problem问题的产生。例如在上面的例子中，会话A中用户已经锁定了b=3的记录。若此时没有Gap Lock锁定（3，6），那么用户可以插入索引b列为3的记录，这会导致会话A中的用户再次执行同样查询时会返回不同的记录，即导致Phantom Problem问题的产生。
+
+用户可以通过以下两种方式来显式地关闭Gap Lock：
+❑将事务的隔离级别设置为READ COMMITTED
+❑将参数innodb_locks_unsafe_for_binlog设置为1
+
+在上述的配置下，除了外键约束和唯一性检查依然需要的Gap Lock，其余情况仅使用RecordLock进行锁定。但需要牢记的是，上述设置破坏了事务的隔离性，并且对于replication，可能会导致主从数据的不一致。此外，从性能上来看，READ COMMITTED也不会优于默认的事务隔离级别READ REPEATABLE。
+
+在InnoDB存储引擎中，对于INSERT的操作，其会检查插入记录的下一条记录是否被锁定，若已经被锁定，则不允许查询。对于上面的例子，会话A已经锁定了表z中b=3的记录，即已经锁定了(1，3)的范围，这时若在其他会话中进行如下的插入同样会导致阻塞：
+
+INSERT INTO z SELECT 2,2;
+
+因为在辅助索引列b上插入值为2的记录时，会监测到下一个记录3已经被索引。而将插入修改为如下的值，可以立即执行：
+
+INSERT INTO z SELECT 2,0;
+
+最后需再次提醒的是，对于唯一键值的锁定，Next-Key Lock降级为Record Lock仅存在于查询所有的唯一索引列。**若唯一索引由多个列组成，而查询仅是查找多个唯一索引列中的其中一个，那么查询其实是range类型查询，而不是point类型查询**，故InnoDB存储引擎依然使用Next-Key Lock进行锁定。
+
+### 6.4.2　解决Phantom Problem
+
+在默认的事务隔离级别下，即REPEATABLE READ下，InnoDB存储引擎采用Next-Key Locking机制来避免Phantom Problem（幻像问题）。这点可能不同于与其他的数据库，如Oracle数据库，因为其可能需要在SERIALIZABLE的事务隔离级别下才能解决Phantom Problem。
+
+Phantom Problem是指在同一事务下，连续执行两次同样的SQL语句可能导致不同的结果，第二次的SQL语句可能会返回之前不存在的行。下面将演示这个例子，使用前一小节所创建的表t。表t由1、2、5这三个值组成，若这时事务T1执行如下的SQL语句：
+
+```
+SELECT*FROM t WHERE a＞2 FOR UPDATE;
+```
+
+注意这时事务T1并没有进行提交操作，上述应该返回5这个结果。若与此同时，另一个事务T2插入了4这个值，并且数据库允许该操作，那么事务T1再次执行上述SQL语句会得到结果4和5。这与第一次得到的结果不同，违反了事务的隔离性，即当前事务能够看到其他事务的结果。其过程如表6-13所示。
+
+![image-20200108115527718](E:\studydyup\notes\src\pic\image-20200108115527718.png)
+
+InnoDB存储引擎采用Next-Key Locking的算法避免Phantom Problem。对于上述的SQL语句SELECT*FROM t WHERE a＞2 FOR UPDATE，其锁住的不是5这单个值，而是对（2，+∞）这个范围加了X锁。因此任何对于这个范围的插入都是不被允许的，从而避免Phantom Problem。
+
+InnoDB存储引擎默认的事务隔离级别是REPEATABLE READ，在该隔离级别下，其采用Next-Key Locking的方式来加锁。而在事务隔离级别READ COMMITTED下，其仅采用Record Lock，因此在上述的示例中，会话A需要将事务的隔离级别设置为READ COMMITTED。
+
+此外，用户可以通过InnoDB存储引擎的Next-Key Locking机制在应用层面实现唯一性的检查。例如：
+SELECT*FROM table WHERE col=xxx LOCK IN SHARE MODE；
+If not found any row:
+#unique for insert value
+INSERT INTO table VALUES(...);
+如果用户通过索引查询一个值，并对该行加上一个SLock，那么即使查询的值不在，其锁定的也是一个范围，因此若没有返回任何行，那么新插入的值一定是唯一的。也许有读者会有疑问，如果在进行第一步SELECT…LOCK IN SHARE MODE操作时，有多个事务并发操作，那么这种唯一性检查机制是否存在问题。其实并不会，因为这时会导致死锁，只有一个事务的插入操作会成功，而其余的事务会抛出死锁的错误，如表6-14所示。
+
+![image-20200108154053626](E:\studydyup\notes\src\pic\image-20200108154053626.png)
+
+## 6.5　锁问题
+
+通过锁定机制可以实现事务的隔离性要求，使得事务可以并发地工作。锁提高了并发，但是却会带来潜在的问题。不过好在因为事务隔离性的要求，锁只会带来三种问题，如果可以防止这三种情况的发生，那将不会产生并发异常。
+
+### 6.5.1　脏读
+
+在理解脏读（Dirty Read）之前，需要理解脏数据的概念。但是脏数据和之前所介绍的脏页完全是两种不同的概念。脏页指的是在缓冲池中已经被修改的页，但是还没有刷新到磁盘中，即数据库实例内存中的页和磁盘中的页的数据是不一致的，当然在刷新到磁盘之前，日志都已经被写入到了重做日志文件中。而所谓脏数据是指事务对缓冲池中行记录的修改，并且还没有被提交（commit）。
+
+对于脏页的读取，是非常正常的。脏页是因为数据库实例内存和磁盘的异步造成的，这并不影响数据的一致性（或者说两者最终会达到一致性，即当脏页都刷回到磁盘）。并且因为脏页的刷新是异步的，不影响数据库的可用性，因此可以带来性能的提高。
+脏数据却截然不同，脏数据是指未提交的数据，如果读到了脏数据，即一个事务可以读到另外一个事务中未提交的数据，则显然违反了数据库的隔离性。
+
+**脏读指的就是在不同的事务下，当前事务可以读到另外事务未提交的数据**，简单来说就是可以读到脏数据。表6-15的例子显示了一个脏读的例子。
+
+![image-20200108154328059](E:\studydyup\notes\src\pic\image-20200108154328059.png)
+
+表t为我们之前在6.4.1中创建的表，不同的是在上述例子中，事务的隔离级别进行了更换，由默认的REPEATABLE READ换成了READ UNCOMMITTED。因此在会话A中，在事务并没有提交的前提下，会话B中的两次SELECT操作取得了不同的结果，并且2这条记录是在会话A中并未提交的数据，即产生了脏读，违反了事务的隔离性。
+
+脏读现象在生产环境中并不常发生，从上面的例子中就可以发现，脏读发生的条件是需要事务的隔离级别为READ UNCOMMITTED，而目前绝大部分的数据库都至少设置成READ COMMITTED。InnoDB存储引擎默认的事务隔离级别为READ REPEATABLE，
+
+脏读隔离看似毫无用处，但在一些比较特殊的情况下还是可以将事务的隔离级别设置为READ UNCOMMITTED。例如replication环境中的slave节点，并且在该slave上的查询并不需要特别精确的返回值。
+
+### 6.5.2　不可重复读
+
+不可重复读是指在一个事务内多次读取同一数据集合。在这个事务还没有结束时，另外一个事务也访问该同一数据集合，并做了一些DML操作。因此，在第一个事务中的两次读数据之间，由于第二个事务的修改，那么第一个事务两次读到的数据可能是不一样的。这样就发生了在一个事务内两次读到的数据是不一样的情况，这种情况称为不可重复读。
+
+不可重复读和脏读的区别是：**脏读是读到未提交的数据，而不可重复读读到的却是已经提交的数据，但是其违反了数据库事务一致性的要求。**可以通过下面一个例子来观察不可重复读的情况，如表6-16所示。
+
+![image-20200108154513232](E:\studydyup\notes\src\pic\image-20200108154513232.png)
+
+一般来说，不可重复读的问题是可以接受的，因为其读到的是已经提交的数据，本身并不会带来很大的问题。因此，很多数据库厂商（如Oracle、Microsoft SQL Server）将其数据库事务的默认隔离级别设置为READ COMMITTED，在这种隔离级别下允许不可重复读的现象。
+
+在InnoDB存储引擎中，通过使用Next-Key Lock算法来避免不可重复读的问题。在MySQL官方文档中将不可重复读的问题定义为Phantom Problem，即幻像问题。在Next-Key Lock算法下，对于索引的扫描，不仅是锁住扫描到的索引，而且还锁住这些索引覆盖的范围（gap）。因此在这个范围内的插入都是不允许的。这样就避免了另外的事务在这个范围内插入数据导致的不可重复读的问题。因此，InnoDB存储引擎的默认事务隔离级别是READ REPEATABLE，采用Next-Key Lock算法，避免了不可重复读的现象。
+
+### 6.5.3　丢失更新
+
+丢失更新是另一个锁导致的问题，简单来说其就是一个事务的更新操作会被另一个事务的更新操作所覆盖，从而导致数据的不一致。例如：
+
+1）事务T1将行记录r更新为v1，但是事务T1并未提交。
+2）与此同时，事务T2将行记录r更新为v2，事务T2未提交。
+3）事务T1提交。
+4）事务T2提交。
+
+要避免丢失更新发生，需要让事务在这种情况下的操作变成串行化，而不是并行的操作。
+
+## 6.6　阻塞
+
+因为不同锁之间的兼容性关系，在有些时刻一个事务中的锁需要等待另一个事务中的锁释放它所占用的资源，这就是阻塞。阻塞并不是一件坏事，其是为了确保事务可以并发且正常地运行。
+
+在InnoDB存储引擎中，参数innodb_lock_wait_timeout用来控制等待的时间（默认是50秒），innodb_rollback_on_timeout用来设定是否在等待超时时对进行中的事务进行回滚操作（默认是OFF，代表不回滚）。参数innodb_lock_wait_timeout是动态的，可以在MySQL数据库运行时进行调整：
+
+需要牢记的是，在**默认情况下InnoDB存储引擎不会回滚超时引发的错误异常**。其实InnoDB存储引擎在大部分情况下都不会对异常进行回滚。
+
+## 6.7　死锁
+
+### 6.7.1　死锁的概念
+
+死锁是指两个或两个以上的事务在执行过程中，因争夺锁资源而造成的一种互相等待的现象。若无外力作用，事务都将无法推进下去。解决死锁问题最简单的方式是不要有等待，将任何的等待都转化为回滚，并且事务重新开始。毫无疑问，这的确可以避免死锁问题的产生。然而在线上环境中，这可能导致并发性能的下降，甚至任何一个事务都不能进行。而这所带来的问题远比死锁问题更为严重，因为这很难被发现并且浪费资源。
+解决死锁问题最简单的一种方法是超时，即当两个事务互相等待时，当一个等待时间超过设置的某一阈值时，其中一个事务进行回滚，另一个等待的事务就能继续进行。在InnoDB存储引擎中，参数innodb_lock_wait_timeout用来设置超时的时间。
+
+超时机制虽然简单，但是其仅通过超时后对事务进行回滚的方式来处理，或者说其是根据FIFO的顺序选择回滚对象。但若超时的事务所占权重比较大，如事务操作更新了很多行，占用了较多的undo log，这时采用FIFO的方式，就显得不合适了，因为回滚这个事务的时间相对另一个事务所占用的时间可能会很多。
+
+因此，除了超时机制，当前数据库还都普遍采用wait-for graph（等待图）的方式来进行死锁检测。较之超时的解决方案，这是一种更为主动的死锁检测方式。InnoDB存储引擎也采用的这种方式。wait-for graph要求数据库保存以下两种信息：
+
+❑锁的信息链表
+❑事务等待链表
+
+wait-for graph是一种较为主动的死锁检测机制，在每个事务请求锁并发生等待时都会判断是否存在回路，若存在则有死锁，通常来说InnoDB存储引擎选择回滚undo量最小的事务。
+
+### 6.7.2　死锁概率
+
+### 6.7.3　死锁的示例
+
+如果程序是串行的，那么不可能发生死锁。死锁只存在于并发的情况，而数据库本身就是一个并发运行的程序，因此可能会发生死锁。表6-18的操作演示了死锁的一种经典的情况，即A等待B，B在等待A，这种死锁问题被称为AB-BA死锁。
+
+![image-20200108155333338](E:\studydyup\notes\src\pic\image-20200108155333338.png)
+
+大多数的死锁InnoDB存储引擎本身可以侦测到，不需要人为进行干预。但是在上面的例子中，在会话B中的事务抛出死锁异常后，会话A中马上得到了记录为2的这个资源，这其实是因为会话B中的事务发生了回滚，否则会话A中的事务是不可能得到该资源的。还记得6.6节中所说的内容吗？InnoDB存储引擎并不会回滚大部分的错误异常，但是死锁除外。发现死锁后，InnoDB存储引擎会马上回滚一个事务，这点是需要注意的。**因此如果在应用程序中捕获了1213这个错误，其实并不需要对其进行回滚**。
+
+## 6.8　锁升级
+
+锁升级（Lock Escalation）是指将当前锁的粒度降低。举例来说，数据库可以把一个表的1000个行锁升级为一个页锁，或者将页锁升级为表锁。如果在数据库的设计中认为锁是一种稀有资源，而且想避免锁的开销，那数据库中会频繁出现锁升级现象。
+
+## 6.9　小结
+
+# 第7章　事务
+
+事务会把数据库从一种一致状态转换为另一种一致状态。在数据库提交工作时，可以确保要么所有修改都已经保存了，要么所有修改都不保存。
+InnoDB存储引擎中的事务完全符合ACID的特性。ACID是以下4个词的缩写：
+❑原子性（atomicity）
+❑一致性（consistency）
+❑隔离性（isolation）
+❑持久性（durability）
+第6章介绍了**锁**，讨论InnoDB是如何实现事务的**隔离性**的。本章主要关注事务的**原子性**这一概念，并说明怎样正确使用事务及编写正确的事务应用程序，避免在事务方面养成一些不好的习惯。
+
+## 7.1　认识事务
+
+### 7.1.1　概述
+
+事务可由一条非常简单的SQL语句组成，也可以由一组复杂的SQL语句组成。事务是访问并更新数据库中各种数据项的一个程序执行单元。在事务中的操作，要么都做修改，要么都不做，这就是事务的目的，也是事务模型区别与文件系统的重要特征之一。
+
+理论上说，事务有着极其严格的定义，它必须同时满足四个特性，即通常所说的事务的ACID特性。值得注意的是，虽然理论上定义了严格的事务要求，但是数据库厂商出于各种目的，并没有严格去满足事务的ACID标准。
+
+A（Atomicity），原子性。
+
+原子性指整个数据库事务是不可分割的工作单位。只有使事务中所有的数据库操作都执行成功，才算整个事务成功。事务中任何一个SQL语句执行失败，已经执行成功的SQL语句也必须撤销，数据库状态应该退回到执行事务前的状态。
+
+如果事务中的操作都是只读的，要保持原子性是很简单的。一旦发生任何错误，要么重试，要么返回错误代码。因为只读操作不会改变系统中的任何相关部分。但是，当事务中的操作需要改变系统中的状态时，例如插入记录或更新记录，那么情况可能就不像只读操作那么简单了。如果操作失败，很有可能引起状态的变化，因此必须要保护系统中并发用户访问受影响的部分数据。
+
+C（consistency），一致性。
+
+一致性指事务将数据库从一种状态转变为下一种一致的状态。在事务开始之前和事务结束以后，数据库的完整性约束没有被破坏。
+
+I（isolation），隔离性。隔离性还有其他的称呼，如并发控制（concurrency control）、可串行化（serializability）、锁（locking）等。事务的隔离性要求每个读写事务的对象对其他事务的操作对象能相互分离，即该事务提交前对其他事务都不可见，通常这使用锁来实现。当前数据库系统中都提供了一种粒度锁（granular lock）的策略，允许事务仅锁住一个实体对象的子集，以此来提高事务之间的并发度。
+
+D（durability），持久性。事务一旦提交，其结果就是永久性的。即使发生宕机等故障，数据库也能将数据恢复。需要注意的是，只能从事务本身的角度来保证结果的永久性。
+
+### 7.1.2　分类
+
+从事务理论的角度来说，可以把事务分为以下几种类型：
+❑扁平事务（Flat Transactions）
+❑带有保存点的扁平事务（Flat Transactions with Savepoints）
+❑链事务（Chained Transactions）
+❑嵌套事务（Nested Transactions）
+❑分布式事务（Distributed Transactions）
+
+扁平事务（Flat Transaction）是事务类型中最简单的一种，但在实际生产环境中，这可能是使用最为频繁的事务。在扁平事务中，所有操作都处于同一层次，其由BEGIN WORK开始，由COMMIT WORK或ROLLBACK WORK结束，其间的操作是原子的，要么都执行，要么都回滚。因此扁平事务是应用程序成为原子操作的基本组成模块。
+
+链事务（Chained Transaction）可视为保存点模式的一种变种。带有保存点的扁平事务，当发生系统崩溃时，所有的保存点都将消失，因为其保存点是易失的（volatile），而非持久的（persistent）。这意味着当进行恢复时，事务需要从开始处重新执行，而不能从最近的一个保存点继续执行。
+链事务的思想是：在提交一个事务时，释放不需要的数据对象，将必要的处理上下文隐式地传给下一个要开始的事务。注意，提交事务操作和开始下一个事务操作将合并为一个原子操作。这意味着下一个事务将看到上一个事务的结果，就好像在一个事务中进行的一样。
+
+嵌套事务（Nested Transaction）是一个层次结构框架。由一个顶层事务（top-level transaction）控制着各个层次的事务。顶层事务之下嵌套的事务被称为子事务（subtransaction），其控制每一个局部的变换。
+
+分布式事务（Distributed Transactions）通常是一个在分布式环境下运行的扁平事务，因此需要根据数据所在位置访问网络中的不同节点。
+
+对于InnoDB存储引擎来说，其支持扁平事务、带有保存点的事务、链事务、分布式事务。对于嵌套事务，其并不原生支持，因此，对有并行事务需求的用户来说，MySQL数据库或InnoDB存储引擎就显得无能为力了。然而用户仍可以通过带有保存点的事务来模拟串行的嵌套事务。
+
+## 7.2　事务的实现
+
+事务隔离性由第6章讲述的锁来实现。原子性、一致性、持久性通过数据库的redo log和undo log来完成。redo log称为重做日志，用来保证事务的原子性和持久性。undo log用来保证事务的一致性。
+
+有的DBA或许会认为undo是redo的逆过程，其实不然。redo和undo的作用都可以视为是一种恢复操作，redo恢复提交事务修改的页操作，而undo回滚行记录到某个特定版本。因此两者记录的内容不同，redo通常是物理日志，记录的是页的物理修改操作。undo是逻辑日志，根据每行记录进行记录。
+
+### 7.2.1　redo
+
+1. **基本概念**
+
+重做日志用来实现事务的持久性，即事务ACID中的D。其由两部分组成：一是内存中的重做日志缓冲（redo log buffer），其是易失的；二是重做日志文件（redo log file），其是持久的。
+
+InnoDB是事务的存储引擎，其通过Force Log at Commit机制实现事务的持久性，即当事务提交（COMMIT）时，必须先将该事务的所有日志写入到重做日志文件进行持久化，待事务的COMMIT操作完成才算完成。这里的日志是指重做日志，在InnoDB存储引擎中，由两部分组成，即redo log和undo log。**redo log用来保证事务的持久性，undo log用来帮助事务回滚及MVCC的功能。redo log基本上都是顺序写的，在数据库运行时不需要对redo log的文件进行读取操作。而undo log是需要进行随机读写的。**
+
+为了确保每次日志都写入重做日志文件，在每次将重做日志缓冲写入重做日志文件后，InnoDB存储引擎都需要调用一次fsync操作。由于重做日志文件打开并没有使用O_DIRECT选项，因此重做日志缓冲先写入文件系统缓存。为了确保重做日志写入磁盘，必须进行一次fsync操作。由于fsync的效率取决于磁盘的性能，因此磁盘的性能决定了事务提交的性能，也就是数据库的性能。
+
+InnoDB存储引擎允许用户手工设置非持久性的情况发生，以此提高数据库的性能。即当事务提交时，日志不写入重做日志文件，而是等待一个时间周期后再执行fsync操作。由于并非强制在事务提交时进行一次fsync操作，显然这可以显著提高数据库的性能。但是当数据库发生宕机时，由于部分日志未刷新到磁盘，因此会丢失最后一段时间的事务。
+
+参数innodb_flush_log_at_trx_commit用来控制重做日志刷新到磁盘的策略。该参数的默认值为1，表示事务提交时必须调用一次fsync操作。还可以设置该参数的值为0和2。0表示事务提交时不进行写入重做日志操作，这个操作仅在master thread中完成，而在master thread中每1秒会进行一次重做日志文件的fsync操作。2表示事务提交时将重做日志写入重做日志文件，但仅写入文件系统的缓存中，不进行fsync操作。在这个设置下，当MySQL数据库发生宕机而操作系统不发生宕机时，并不会导致事务的丢失。而当操作系统宕机时，重启数据库后会丢失未从文件系统缓存刷新到重做日志文件那部分事务。
+
+
+
+在MySQL数据库中还有一种二进制日志（binlog），其用来进行POINT-IN-TIME（PIT）的恢复及主从复制（Replication）环境的建立。从表面上看其和重做日志非常相似，都是记录了对于数据库操作的日志。然而，从本质上来看，两者有着非常大的不同。
+
+首先，重做日志是在InnoDB存储引擎层产生，而二进制日志是在MySQL数据库的上层产生的，并且二进制日志不仅仅针对于InnoDB存储引擎，MySQL数据库中的任何存储引擎对于数据库的更改都会产生二进制日志。
+
+其次，两种日志记录的内容形式不同。MySQL数据库上层的二进制日志是一种逻辑日志，其记录的是对应的SQL语句。而InnoDB存储引擎层面的重做日志是物理格式日志，其记录的是对于每个页的修改。
+
+此外，两种日志记录写入磁盘的时间点不同，如图7-6所示。二进制日志只在事务提交完成后进行一次写入。而InnoDB存储引擎的重做日志在事务进行中不断地被写入，这表现为日志并不是随事务提交的顺序进行写入的。
+
+2. **log block**
+
+在InnoDB存储引擎中，重做日志都是以512字节进行存储的。这意味着重做日志缓存、重做日志文件都是以块（block）的方式进行保存的，称之为重做日志块（redo log block），每块的大小为512字节。
+
+3. **log group**
+
+log group为重做日志组，其中有多个重做日志文件。虽然源码中已支持log group的镜像功能，但是在ha_innobase.cc文件中禁止了该功能。因此InnoDB存储引擎实际只有一个log group。
+
+4. **重做日志格式**
+
+   不同的数据库操作会有对应的重做日志格式。此外，由于InnoDB存储引擎的存储管理是基于页的，故其重做日志格式也是基于页的。虽然有着不同的重做日志格式，但是它们有着通用的头部格式，如图7-10所示。
+
+   ![image-20200108161914970](E:\studydyup\notes\src\pic\image-20200108161914970.png)
+
+5. **LSN**
+   LSN是Log Sequence Number的缩写，其代表的是日志序列号。在InnoDB存储引擎中，LSN占用8字节，并且单调递增。LSN表示的含义有：
+
+### 7.2.2　undo
+
+1. **基本概念**
+
+   重做日志记录了事务的行为，可以很好地通过其对页进行“重做”操作。**但是事务有时还需要进行回滚操作，这时就需要undo。**因此在对数据库进行修改时，InnoDB存储引擎不但会产生redo，还会产生一定量的undo。这样如果用户执行的事务或语句由于某种原因失败了，又或者用户用一条ROLLBACK语句请求回滚，就可以利用这些undo信息将数据回滚到修改之前的样子。
+
+   redo存放在重做日志文件中，与redo不同，undo存放在数据库内部的一个特殊段（segment）中，这个段称为undo段（undo segment）。undo段位于共享表空间内。可以通过py_innodb_page_info.py工具来查看当前共享表空间中undo的数量。
+
+   用户通常对undo有这样的误解：undo用于将数据库物理地恢复到执行语句或事务之前的样子——但事实并非如此。undo是逻辑日志，因此**只是将数据库逻辑地恢复到原来的样子**。
+
+   所有修改都被逻辑地取消了，但是数据结构和页本身在回滚之后可能大不相同。这是因为在多用户并发系统中，可能会有数十、数百甚至数千个并发事务。数据库的主要任务就是协调对数据记录的并发访问。比如，一个事务在修改当前一个页中某几条记录，同时还有别的事务在对同一个页中另几条记录进行修改。因此，不能将一个页回滚到事务开始的样子，因为这样会影响其他事务正在进行的工作。
+
+   除了回滚操作，**undo的另一个作用是MVCC，即在InnoDB存储引擎中MVCC的实现是通过undo来完成**。当用户读取一行记录时，若该记录已经被其他事务占用，**当前事务可以通过undo读取之前的行版本信息**，以此实现非锁定读取。
+
+   最后也是最为重要的一点是，**undo log会产生redo log，也就是undo log的产生会伴随着redo log的产生，这是因为undo log也需要持久性的保护**。
+
+### 7.2.3　purge
+
+delete和update操作可能并不直接删除原有的数据。例如，对上一小节所产生的表t执行如下的SQL语句：
+DELETE FROM t WHERE a=1;
+表t上列a有聚集索引，列b上有辅助索引。对于上述的delete操作，通过前面关于undo log的介绍已经知道仅是将主键列等于1的记录delete flag设置为1，记录并没有被删除，即记录还是存在于B+树中。其次，对辅助索引上a等于1，b等于1的记录同样没有做任何处理，甚至没有产生undo log。而真正删除这行记录的操作其实被“延时”了，最终在purge操作中完成。
+
+purge用于最终完成delete和update操作。这样设计是因为InnoDB存储引擎支持MVCC，所以记录不能在事务提交时立即进行处理。这时其他事物可能正在引用这行，故InnoDB存储引擎需要保存记录之前的版本。而是否可以删除该条记录通过purge来进行判断。若该行记录已不被任何其他事务引用，那么就可以进行真正的delete操作。可见，purge操作是清理之前的delete和update操作，将上述操作“最终”完成。而实际执行的操作为delete操作，清理之前行记录的版本。
+
+### 7.2.4　group commit
+
+若事务为非只读事务，则每次事务提交时需要进行一次fsync操作，以此保证重做日志都已经写入磁盘。当数据库发生宕机时，可以通过重做日志进行恢复。虽然固态硬盘的出现提高了磁盘的性能，然而磁盘的fsync性能是有限的。为了提高磁盘fsync的效率，当前数据库都提供了group commit的功能，即一次fsync可以刷新确保多个事务日志被写入文件。对于InnoDB存储引擎来说，事务提交时会进行两个阶段的操作：
+1）修改内存中事务对应的信息，并且将日志写入重做日志缓冲。
+2）调用fsync将确保日志都从重做日志缓冲写入磁盘。
+
+步骤2）相对步骤1）是一个较慢的过程，这是因为存储引擎需要与磁盘打交道。但当有事务进行这个过程时，其他事务可以进行步骤1）的操作，正在提交的事物完成提交操作后，再次进行步骤2）时，可以将多个事务的重做日志通过一次fsync刷新到磁盘，这样就大大地减少了磁盘的压力，从而提高了数据库的整体性能。对于写入或更新较为频繁的操作，group commit的效果尤为明显。
+
+## 7.3　事务控制语句
+
+在MySQL命令行的默认设置下，事务都是自动提交（auto commit）的，即执行SQL语句后就会马上执行COMMIT操作。因此要显式地开启一个事务需使用命令BEGIN、START TRANSACTION，或者执行命令SET AUTOCOMMIT=0，禁用当前会话的自动提交。每个数据库厂商自动提交的设置都不相同，每个DBA或开发人员需要非常明白这一点，这对之后的SQL编程会有非凡的意义，因此用户不能以之前的经验来判断MySQL数据库的运行方式。在具体介绍其含义之前，先来看看用户可以使用哪些事务控制语句。
+❑START TRANSACTION|BEGIN：显式地开启一个事务。
+❑COMMIT：要想使用这个语句的最简形式，只需发出COMMIT。也可以更详细一些，写为COMMIT WORK，不过这二者几乎是等价的。COMMIT会提交事务，并使得已对数据库做的所有修改成为永久性的。
+❑ROLLBACK：要想使用这个语句的最简形式，只需发出ROLLBACK。同样地，也可以写为ROLLBACK WORK，但是二者几乎是等价的。回滚会结束用户的事务，并撤销正在进行的所有未提交的修改。
+
+## 7.4　隐式提交的SQL语句
+
+## 7.5　对于事务操作的统计
+
+由于InnoDB存储引擎是支持事务的，因此InnoDB存储引擎的应用需要在考虑每秒请求数（Question Per Second，QPS）的同时，应该关注每秒事务处理的能力（Transaction Per Second，TPS）。
+计算TPS的方法是（com_commit+com_rollback）/time。但是利用这种方法进行计算的前提是：所有的事务必须都是显式提交的，如果存在隐式地提交和回滚（默认autocommit=1），不会计算到com_commit和com_rollback变量中。
+
+## 7.6　事务的隔离级别
+
+令人惊讶的是，大部分数据库系统都没有提供真正的隔离性，最初或许是因为系统实现者并没有真正理解这些问题。如今这些问题已经弄清楚了，但是数据库实现者在正确性和性能之间做了妥协。ISO和ANIS SQL标准制定了四种事务隔离级别的标准，但是很少有数据库厂商遵循这些标准。比如Oracle数据库就不支持READ UNCOMMITTED和REPEATABLE READ的事务隔离级别。
+
+SQL标准定义的四个隔离级别为：
+❑READ UNCOMMITTED
+❑READ COMMITTED
+❑REPEATABLE READ
+❑SERIALIZABLE
+
+InnoDB存储引擎默认支持的隔离级别是REPEATABLE READ，但是与标准SQL不同的是，InnoDB存储引擎在REPEATABLE READ事务隔离级别下，使用Next-Key Lock锁的算法，因此避免幻读的产生。这与其他数据库系统（如Microsoft SQL Server数据库）是不同的。所以说，InnoDB存储引擎在默认的REPEATABLE READ的事务隔离级别下已经能完全保证事务的隔离性要求，即达到SQL标准的SERIALIZABLE隔离级别。
+
+在InnoDB存储引擎中选择REPEATABLE READ的事务隔离级别并不会有任何性能的损失。同样地，即使使用READ COMMITTED的隔离级别，用户也不会得到性能的大幅度提升。
+在InnoDB存储引擎中，可以使用以下命令来设置当前会话或全局的事务隔离级别：
+SET[GLOBAL|SESSION]TRANSACTION ISOLATION LEVEL
+
+## 7.7　分布式事务
+
+### 7.7.1　MySQL数据库分布式事务
+
+InnoDB存储引擎提供了对XA事务的支持，并通过XA事务来支持分布式事务的实现。分布式事务指的是允许多个独立的事务资源（transactional resources）参与到一个全局的事务中。事务资源通常是关系型数据库系统，但也可以是其他类型的资源。全局事务要求在其中的所有参与的事务要么都提交，要么都回滚，这对于事务原有的ACID要求又有了提高。**另外，在使用分布式事务时，InnoDB存储引擎的事务隔离级别必须设置为SERIALIZABLE**。
+
+**XA事务允许不同数据库之间的分布式事务**，如一台服务器是MySQL数据库的，另一台是Oracle数据库的，又可能还有一台服务器是SQL Server数据库的，只要参与在全局事务中的每个节点都支持XA事务。分布式事务可能在银行系统的转账中比较常见，如用户David需要从上海转10 000元到北京的用户Mariah的银行卡中：
+#Bank@Shanghai：
+UPDATE account SET money=money-10000 WHERE user='David';
+#Bank@Beijing
+UPDATE account SET money=money+10000 WHERE user='Mariah';
+在这种情况下，一定需要使用分布式事务来保证数据的安全。如果发生的操作不能全部提交或回滚，那么任何一个结点出现问题都会导致严重的结果。要么是David的账户被扣款，但是Mariah没收到，又或者是David的账户没有扣款，Mariah却收到钱了。
+
+XA事务由**一个或多个资源管理器**（Resource Managers）、**一个事务管理器**（Transaction Manager）以及**一个应用程序**（Application Program）组成。
+
+- 资源管理器：提供访问事务资源的方法。通常一个数据库就是一个资源管理器。
+
+- 事务管理器：协调参与全局事务中的各个事务。需要和参与全局事务的所有资源管理器进行通信。
+- 应用程序：定义事务的边界，指定全局事务中的操作。
+
+在MySQL数据库的分布式事务中，资源管理器就是MySQL数据库，事务管理器为连接MySQL服务器的客户端。图7-22显示了一个分布式事务的模型。
+
+![image-20200108174029911](E:\studydyup\notes\src\pic\image-20200108174029911.png)
+
+分布式事务使用两段式提交（two-phase commit）的方式。在第一阶段，所有参与全局事务的节点都开始准备（PREPARE），告诉事务管理器它们准备好提交了。在第二阶段，事务管理器告诉资源管理器执行ROLLBACK还是COMMIT。如果任何一个节点显示不能提交，则所有的节点都被告知需要回滚。可见与本地事务不同的是，分布式事务需要多一次的PREPARE操作，待收到所有节点的同意信息后，再进行COMMIT或是ROLLBACK操作。
+
+MySQL数据库XA事务的SQL语法如下：
+
+```
+XA{START|BEGIN}xid[JOIN|RESUME]
+XA END xid[SUSPEND[FOR MIGRATE]]
+XA PREPARE xid
+XA COMMIT xid[ONE PHASE]
+XA ROLLBACK xid
+XA RECOVER
+```
+
+在单个节点上运行XA事务的例子：
+
+```
+mysql＞XA START'a';
+Query OK,0 rows affected(0.00 sec)
+mysql＞INSERT INTO z SELECT 11;
+Query OK,1 row affected(0.00 sec)
+Records:1 Duplicates:0 Warnings:0
+mysql＞XA END'a';
+Query OK,0 rows affected(0.00 sec)
+mysql＞XA PREPARE'a';
+Query OK,0 rows affected(0.05 sec)
+mysql＞XA RECOVER\G;
+***************************1.row***************************
+formatID:1
+gtrid_length:1
+bqual_length:0
+data:a
+1 row in set(0.00 sec)
+mysql＞XA COMMIT'a';
+Query OK,0 rows affected(0.05 sec)
+
+```
+
+在单个节点上运行分布式事务没有太大的实际意义，但是要在MySQL数据库的命令下演示多个节
+
+点参与的分布式事务也是行不通的。通常来说，都是通过编程语言来完成分布式事务的操作的。当前Java的JTA（Java Transaction API）可以很好地支持MySQL的分布式事务，需要使用分布式事务应该认真参考其API。下面的一个示例显示了如何使用JTA来调用MySQL的分布式事务，就是前面所举例的银行转账的例子，代码如下，仅供参考：
+
+```java
+import java.sql.Connection;
+import javax.sql.XAConnection;
+import javax.transaction.xa.*;
+
+import com.mysql.jdbc.jdbc2.optional.MysqlXADataSource;
+
+import java.sql.*;
+
+class MyXid implements Xid {
+    public int formatId;
+    public byte gtrid[];
+    public byte bqual[];
+
+    public MyXid() {
+    }
+
+    public MyXid(int formatId, byte gtrid[], byte bqual[]) {
+        this.formatId = formatId;
+        this.gtrid = gtrid;
+        this.bqual = bqual;
+    }
+
+    public int getFormatId() {
+        return formatId;
+    }
+
+    public byte[] getBranchQualifier() {
+        return bqual;
+    }
+
+    public byte[] getGlobalTransactionId() {
+        return gtrid;
+    }
+}
+
+public class xa_demo {
+    public static MysqlXADataSource GetDataSource(
+            String connString,
+            String user,
+            String passwd) {
+        try {
+            MysqlXADataSource ds = new MysqlXADataSource();
+            ds.setUrl(connString);
+            ds.setUser(user);
+            ds.setPassword(passwd);
+            return ds;
+        } catch (Exception e) {
+            System.out.println(e.toString());
+            return null;
+        }
+    }
+
+    public static void main(String[] args) {
+        String connString1 = "jdbc:mysql://192.168.24.43:3306/bank_shanghai";
+        String connString2 = "jdbc:mysql://192.168.24.166:3306/bank_beijing";
+        try {
+            MysqlXADataSource ds1 =
+                    GetDataSource(connString1, "peter", "12345");
+            MysqlXADataSource ds2 =
+                    GetDataSource(connString2, "david", "12345");
+            XAConnection xaConn1 = ds1.getXAConnection();
+            XAResource xaRes1 = xaConn1.getXAResource();
+            Connection conn1 = xaConn1.getConnection();
+            Statement stmt1 = conn1.createStatement();
+            XAConnection xaConn2 = ds2.getXAConnection();
+            XAResource xaRes2 = xaConn2.getXAResource();
+            Connection conn2 = xaConn2.getConnection();
+            Statement stmt2 = conn2.createStatement();
+            Xid xid1 = new MyXid(
+                    100,
+                    new byte[]{0x01},
+                    new byte[]{0x02});
+            Xid xid2 = new MyXid(
+                    100,
+                    new byte[]{0x11},
+                    new byte[]{0x12});
+            try {
+                xaRes1.start(xid1, XAResource.TMNOFLAGS);
+                stmt1.execute("UPDATE account SET money = money - 10000 WHERE user = 'david'"
+                );
+                xaRes1.end(xid1, XAResource.TMSUCCESS);
+                xaRes2.start(xid2, XAResource.TMNOFLAGS);
+                stmt2.execute(" UPDATE account SET money = money + 10000 WHERE user = 'mariah'"
+                );
+                xaRes2.end(xid2, XAResource.TMSUCCESS);
+                int ret2 = xaRes2.prepare(xid2);
+                int ret1 = xaRes1.prepare(xid1);
+                if (ret1 == XAResource.XA_OK && ret2 == XAResource.XA_OK) {
+                    xaRes1.commit(xid1, false);
+                    xaRes2.commit(xid2, false);
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        } catch (Exception e) {
+            System.out.println(e.toString());
+        }
+    }
+}
+```
+
+通过参数innodb_support_xa可以查看是否启用了XA事务的支持（默认为ON）：
+
+```
+mysql＞SHOW VARIABLES LIKE'innodb_support_xa';
+```
+
+### 7.7.2　内部XA事务
+
+之前讨论的分布式事务是外部事务，即资源管理器是MySQL数据库本身。在MySQL数据库中还存在另外一种分布式事务，其在存储引擎与插件之间，又或者在存储引擎与存储引擎之间，称之为内部XA事务。
+
+## 7.8　不好的事务习惯
+
+### 7.8.1　在循环中提交
+
+### 7.8.2　使用自动提交
+
+### 7.8.3　使用自动回滚
+
+## 7.9　长事务
+
